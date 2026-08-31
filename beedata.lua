@@ -136,7 +136,10 @@ function data.build()
   end
   f:close()
   muts = nil
-  collectgarbage("collect")
+  -- OpenOS's sandbox does not expose collectgarbage, so this is only
+  -- a nudge where it exists; dropping the table above is what
+  -- actually frees the memory either way.
+  if collectgarbage then collectgarbage("collect") end
   return written, skipped
 end
 

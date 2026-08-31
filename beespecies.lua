@@ -86,7 +86,7 @@ function species.build()
   end
   f:close()
   list = nil
-  collectgarbage("collect")
+  if collectgarbage then collectgarbage("collect") end
   return written, skipped
 end
 
