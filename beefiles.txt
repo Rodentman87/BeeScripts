@@ -23,6 +23,10 @@ beeyard.lua       /lib/beeyard.lua
 beegenes.lua      /lib/beegenes.lua
 beeplanner.lua    /lib/beeplanner.lua
 
+# Transposer wiring -- which side is the chest, apiary, scanner
+beesides.lua      /lib/beesides.lua
+beedetect.lua     /lib/beedetect.lua
+
 # Registry caches and climate
 beedata.lua       /lib/beedata.lua
 beespecies.lua    /lib/beespecies.lua
@@ -34,6 +38,7 @@ beeui.lua         /lib/beeui.lua
 beedash.lua       /lib/beedash.lua
 beesetup.lua      /lib/beesetup.lua
 beepreview.lua    /lib/beepreview.lua
+beewire.lua       /lib/beewire.lua
 beesegs.lua       /lib/beesegs.lua
 beecolors.lua     /lib/beecolors.lua
 

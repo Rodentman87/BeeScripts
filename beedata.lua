@@ -26,16 +26,37 @@ local function ensureDir()
   end
 end
 
--- Find the apiculture component regardless of its exact registered
+-- Find the bee-housing component regardless of its exact registered
 -- name (seen in the wild as tile_for_apiculture_0_name and similar).
+-- An Adapter on an Alveary registers under THAT block's name, so the
+-- alveary spellings count too -- and a candidate that actually
+-- exposes the registry beats one that merely looks right, which is
+-- what settles it when both hives have an Adapter on them.
 -- Exported: beespecies and beeyard reach the same tile through it.
+local HIVE_NAMES = {"apiculture", "alveary", "apiary", "beehouse"}
+
+local function looksLikeHive(name)
+  for _, k in ipairs(HIVE_NAMES) do
+    if name:find(k, 1, true) then return true end
+  end
+  return false
+end
+
 local function findApiculture()
+  local fallback = nil
   for addr, name in component.list() do
-    if name:lower():find("apiculture") then
-      return component.proxy(addr)
+    if looksLikeHive(name:lower()) then
+      local proxy = component.proxy(addr)
+      -- The registry methods are what beedata and beespecies came
+      -- for; a hive without them can still answer climate questions.
+      if proxy and (proxy.getBeeBreedingData or proxy.listAllSpecies) then
+        return proxy
+      end
+      fallback = fallback or proxy
     end
   end
-  return nil, "no apiculture component found -- Adapter next to the apiary?"
+  if fallback then return fallback end
+  return nil, "no bee housing component -- Adapter next to the apiary or alveary?"
 end
 
 -- Pick the first present field from a list of candidate names

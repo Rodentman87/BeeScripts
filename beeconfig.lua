@@ -4,6 +4,11 @@
 local sides = require("sides")
 
 return {
+  -- Transposer sides. Checked against what is actually attached at
+  -- startup: move the build and beebreeder works the new layout out
+  -- by itself, and asks on the wiring screen only when it genuinely
+  -- cannot tell (two chests that look alike). `beebreeder sides`
+  -- edits and saves them here, keeping a beeconfig.lua.bak.
   chestSide   = sides.north,  -- side of transposer touching the chest
   apiarySide  = sides.south,  -- side of transposer touching the apiary
   scannerSide = sides.east,   -- side of transposer touching the GT scanner

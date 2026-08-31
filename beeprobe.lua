@@ -6,6 +6,8 @@
 --   beeprobe stats    summarize the cached graph
 --   beeprobe species  sample the species registry (colors? climate?)
 --   beeprobe climate  does this hive report its own climate?
+--   beeprobe sides    what is on each transposer side (add `save`
+--                     to write the detected wiring to beeconfig)
 --
 -- Run right after a fresh reboot for maximum free RAM -- the
 -- registry call materializes the whole mutation table at once.
@@ -105,6 +107,9 @@ elseif mode == "climate" then
   print(("In effect: %s (%s)"):format(hive.text,
         hive.detected and "read from the hive" or "from beeconfig"))
 
+elseif mode == "sides" then
+  require("beewire").report(args[2] == "save")
+
 elseif mode == "stats" then
   local muts, species = data.load()
   if not muts then
@@ -116,5 +121,5 @@ elseif mode == "stats" then
   print(("Cache: %d mutations across %d species."):format(#muts, count))
 
 else
-  print("Usage: beeprobe [probe|build|stats|species|climate]")
+  print("Usage: beeprobe [probe|build|stats|species|climate|sides]")
 end
