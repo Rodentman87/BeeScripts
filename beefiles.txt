@@ -12,7 +12,6 @@
 # filesystem, not the PC's, and is installed by hand.
 
 # Entry points
-beeupdate.lua     /home/beeupdate.lua
 beebreeder.lua    /home/beebreeder.lua
 beeprobe.lua      /home/beeprobe.lua
 beeplan.lua       /home/beeplan.lua
@@ -45,3 +44,7 @@ beedump.lua       /lib/beedump.lua
 
 # Yours -- fetched once, then left alone forever
 beeconfig.lua     /lib/beeconfig.lua    keep
+
+# Last on purpose: this one rewrites the script that is running, so
+# everything else is safely installed before it happens.
+beeupdate.lua     /home/beeupdate.lua

@@ -19,8 +19,13 @@ local filesystem = require("filesystem")
 local BASE = "https://raw.githubusercontent.com/Rodentman87/BeeScripts/refs/heads/main/"
 
 local MANIFEST  = "beefiles.txt"
-local TMP_LIST  = "/tmp/beefiles.txt"
 local LAST_LIST = "/home/beefiles.txt"  -- last good copy, kept as a fallback
+
+-- Staging file for a fresh download. /tmp is a tmpfs on OpenOS, but
+-- don't bet the whole update on it existing: without a writable
+-- staging path there is no manifest, and nothing installs at all.
+local TMP_LIST = filesystem.exists("/tmp") and "/tmp/beefiles.txt"
+                 or "/home/beefiles.new"
 
 local args = {...}
 local dryRun = (args[1] == "list")
@@ -28,6 +33,16 @@ local dryRun = (args[1] == "list")
 local function fetch(src, dst, force)
   local flag = force and "-f " or ""
   return shell.execute("wget " .. flag .. BASE .. src .. " " .. dst)
+end
+
+-- wget's exit status is not proof that anything was written, so every
+-- fetch is judged on the file itself. Without this a silent failure
+-- looks exactly like a successful no-op, which is impossible to debug
+-- from the outside.
+local function sizeOf(path)
+  if not filesystem.exists(path) then return nil end
+  local ok, n = pcall(filesystem.size, path)
+  return ok and n or nil
 end
 
 -- One entry per line:  <source>  <install path>  [keep]
@@ -58,6 +73,9 @@ end
 -- rather than stranded with no list at all.
 local function manifest()
   print("fetching " .. MANIFEST)
+  -- Clear it first: a stale copy from an earlier run in this session
+  -- parses perfectly well and would masquerade as a fresh download.
+  if filesystem.exists(TMP_LIST) then pcall(filesystem.remove, TMP_LIST) end
   if fetch(MANIFEST, TMP_LIST, true) then
     local list = parse(TMP_LIST)
     if list and #list > 0 then
@@ -93,11 +111,17 @@ for _, e in ipairs(list) do
       filesystem.makeDirectory(dir)
     end
     print("fetching " .. e.src)
-    if fetch(e.src, e.dst, true) then
-      updated = updated + 1
-    else
-      print("  FAILED: " .. e.src)
+    local before = sizeOf(e.dst)
+    local ok = fetch(e.src, e.dst, true)
+    local after = sizeOf(e.dst)
+    if not ok or not after or after == 0 then
+      print("  FAILED -- nothing written to " .. e.dst)
+      print("  try by hand: wget -f " .. BASE .. e.src .. " " .. e.dst)
       failed = failed + 1
+    else
+      updated = updated + 1
+      print(("  %d bytes%s"):format(after,
+            before == after and " (same size as before)" or ""))
     end
   end
 end
