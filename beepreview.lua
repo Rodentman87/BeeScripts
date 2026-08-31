@@ -8,6 +8,8 @@ local segs    = require("beesegs")
 local data    = require("beedata")
 local planner = require("beeplanner")
 local found   = require("beefound")
+local climate = require("beeclimate")
+local advice  = require("beeadvice")
 local C = core.C
 
 local preview = {}
@@ -56,7 +58,8 @@ function preview.show(target, top, bottom)
     return fill()
   end
 
-  local steps, why = planner.compute(muts, owned, target)
+  local hive = climate.autodetect()
+  local steps, why = planner.compute(muts, owned, target, climate.routeCost)
   if not steps then
     line({{text = "NO ROUTE: ", color = C.bad},
           {text = tostring(why)}})
@@ -67,12 +70,19 @@ function preview.show(target, top, bottom)
 
   local cyc = 0
   for _, s in ipairs(steps) do cyc = cyc + s.expCycles end
-  line({{text = ("Route: %d steps, ~%d cycles expected"):format(#steps, cyc),
-         color = C.good}})
+  line({{text = ("Route: %d steps, ~%d cycles expected  (hive %s)")
+         :format(#steps, cyc, hive.text), color = C.good}})
 
   -- Collect preparation notes from step conditions
   local notes = {}
   for _, s in ipairs(steps) do
+    -- Climate is a preparation note like any other: it is something
+    -- to sort out before the run, not a surprise ten cycles in.
+    local st = climate.status(s.result)
+    if st and not st.ok then
+      notes[#notes + 1] = ("%s wants %s -- %s"):format(s.result, st.want,
+                          advice.tolerance(st))
+    end
     if s.cond and s.cond ~= "" then
       local block = found.parse(s.cond)
       if block then

@@ -21,6 +21,15 @@ return {
   stagnantWarn = 10,          -- warn if drone count flat for this many cycles
   chatEveryQueen = true,      -- chat message per new queen (false = milestones only)
 
+  -- Climate. A plain apiary takes its climate from the biome; an
+  -- alveary can be steered with a Heater/Fan/Hygroregulator. These
+  -- two are the fallback for when the hive won't tell us itself.
+  apiaryTemperature = "Normal",  -- Icy Cold Normal Warm Hot Hellish
+  apiaryHumidity    = "Normal",  -- Arid Normal Damp
+  climateAuto    = true,      -- ask the hive first, fall back to the above
+  climatePenalty = 60,        -- extra planner cost for a species the hive
+                              -- can't house (steers routes toward ones it can)
+
   -- Forestry apiary slot layout (1.7.10)
   PRINCESS_SLOT = 1,
   DRONE_SLOT    = 2,

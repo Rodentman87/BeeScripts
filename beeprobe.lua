@@ -2,14 +2,15 @@
 -- Stage-1 tool for the generic breeder.
 --
 --   beeprobe          capture format samples to /home/beedata/sample.txt
---   beeprobe build    extract full mutation graph to the disk cache
+--   beeprobe build    extract mutation graph + species climate to cache
 --   beeprobe stats    summarize the cached graph
---   beeprobe species  sample the species registry (colors?)
+--   beeprobe species  sample the species registry (colors? climate?)
 --
 -- Run right after a fresh reboot for maximum free RAM -- the
 -- registry call materializes the whole mutation table at once.
 
 local data = require("beedata")
+local species = require("beespecies")
 local computer = require("computer")
 
 local args = {...}
@@ -43,16 +44,28 @@ elseif mode == "build" then
     print("adjusting -- check sample.txt and fix compact().")
   end
 
+  -- Second pass: each species' preferred climate, for the warnings
+  print("Extracting species climate...")
+  local spWritten, spErrOrSkipped = species.build()
+  if not spWritten then
+    print("Species climate SKIPPED: " .. tostring(spErrOrSkipped))
+    print("Breeding still works; climate warnings stay silent.")
+  else
+    print(("Cached climate for %d species (%d without one)")
+          :format(spWritten, spErrOrSkipped))
+  end
+
 elseif mode == "species" then
   print("Probing species registry...")
-  local n, err = data.probeSpecies(5)
+  local n, err = species.sample(5)
   if not n then
     print("FAILED: " .. tostring(err))
     return
   end
   print(("%d species in registry."):format(n))
   print("Samples written to /home/beedata/species_sample.txt")
-  print("Look for color fields (primaryColor etc.) in the entries.")
+  print("Check the temperature/humidity spelling there against the")
+  print("scales in beeclimate.lua if climate warnings look wrong.")
 
 elseif mode == "stats" then
   local muts, species = data.load()

@@ -28,6 +28,7 @@ end
 
 -- Find the apiculture component regardless of its exact registered
 -- name (seen in the wild as tile_for_apiculture_0_name and similar).
+-- Exported: beespecies and beeyard reach the same tile through it.
 local function findApiculture()
   for addr, name in component.list() do
     if name:lower():find("apiculture") then
@@ -39,11 +40,16 @@ end
 
 -- Pick the first present field from a list of candidate names
 local function field(t, ...)
+  if type(t) ~= "table" then return nil end
   for _, k in ipairs({...}) do
     if t[k] ~= nil then return t[k] end
   end
   return nil
 end
+
+data.apiculture = findApiculture
+data.ensureDir  = ensureDir
+data.field      = field
 
 -- A species reference may be a plain string or a table; dig out
 -- something usable either way.
@@ -84,33 +90,6 @@ function data.probe(sampleCount)
   end
   f:close()
   return #muts
-end
-
---------------------------------------------------------------------
--- Probe the species registry (listAllSpecies): capture entry count
--- and samples, e.g. to check whether species colors are exposed.
---------------------------------------------------------------------
-function data.probeSpecies(sampleCount)
-  local api, err = findApiculture()
-  if not api then return nil, err end
-  if not api.listAllSpecies then
-    return nil, "component has no listAllSpecies method"
-  end
-  local ok, species = pcall(api.listAllSpecies)
-  if not ok then
-    return nil, "listAllSpecies failed: " .. tostring(species)
-  end
-  ensureDir()
-  local path = CACHE_DIR .. "/species_sample.txt"
-  local f = io.open(path, "w")
-  if not f then return nil, "cannot write " .. path end
-  f:write(("== %d species; first %d ==\n\n")
-          :format(#species, math.min(sampleCount or 5, #species)))
-  for i = 1, math.min(sampleCount or 5, #species) do
-    f:write(serialization.serialize(species[i], math.huge) .. "\n\n")
-  end
-  f:close()
-  return #species
 end
 
 --------------------------------------------------------------------

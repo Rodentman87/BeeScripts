@@ -8,6 +8,7 @@ local yard   = require("beeyard")
 local chat   = require("beechat")
 local step   = require("beestep")
 local found  = require("beefound")
+local climate = require("beeclimate")
 
 local run = {}
 
@@ -85,6 +86,17 @@ local function breedCycle(princesses, drones, info)
   end
   ui.status("Inserting pair")
 
+  -- A queen carries the PRINCESS's genome, so her climate alone
+  -- decides whether the hive ticks at all: an inhospitable one just
+  -- freezes her and the wait below would never end. Insert anyway --
+  -- the reading may be wrong, and fixing the climate frees her.
+  local st = climate.status(p.active, p.tol)
+  if st and not st.ok then
+    ui.climate(st)   -- the climate row spells out both ways to fix it
+    ui.log(("Queen will stall: %s wants %s, hive is %s")
+           :format(st.species, st.want, st.apiary), "bad")
+  end
+
   yard.insertPair(p, d)
   if yard.waitForCycle(queenTick("Queen working")) == "halted" then
     return false
@@ -101,6 +113,9 @@ function run.start(target, muts)
   cycle = 0
   ui.log("Breeding toward: " .. target)
   ui.log("Press Q (or the HALT button) to stop gracefully.")
+  local hive = climate.autodetect()
+  ui.log(("Hive climate: %s (%s)"):format(hive.text,
+         hive.detected and "read from the hive" or "from beeconfig"))
   if muts then
     ui.log("Mutation graph loaded -- planner active.", "good")
   else
@@ -117,6 +132,7 @@ function run.start(target, muts)
   while true do
     if ui.haltRequested() then userHalt() return end
 
+    climate.autodetect()  -- an alveary block added mid-run should count
     local princesses, drones, unanalyzed = yard.scanChest(false)
 
     if #unanalyzed > 0 then

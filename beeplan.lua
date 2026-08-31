@@ -8,6 +8,8 @@
 
 local data    = require("beedata")
 local planner = require("beeplanner")
+local climate = require("beeclimate")
+local advice  = require("beeadvice")
 
 local args = {...}
 local target = args[1]
@@ -51,7 +53,11 @@ for s in pairs(owned) do ownedList[#ownedList + 1] = s end
 table.sort(ownedList)
 print("Owned: " .. table.concat(ownedList, ", "))
 
-local steps, why = planner.compute(muts, owned, target)
+local hive = climate.autodetect()
+print(("Hive climate: %s (%s)"):format(hive.text,
+      hive.detected and "read from the hive" or "from beeconfig"))
+
+local steps, why = planner.compute(muts, owned, target, climate.routeCost)
 if not steps then
   print("NO ROUTE: " .. tostring(why))
   return
@@ -64,4 +70,16 @@ end
 print("")
 for _, line in ipairs(planner.describe(steps)) do
   print(line)
+end
+
+-- Climate homework: which species on this route the hive can't house
+-- as it stands, and the two ways to fix each one.
+local warned = false
+for _, s in ipairs(steps) do
+  local st = climate.status(s.result)
+  if st and not st.ok then
+    if not warned then print("") warned = true end
+    print(advice.line(st))
+    print("   " .. advice.fix(st))
+  end
 end

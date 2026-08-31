@@ -1,0 +1,47 @@
+# beefiles.txt -- the list beeupdate installs from.
+#
+# One entry per line:   <source in repo>   <install path>   [keep]
+#   "keep" = fetch only when the file is missing, so your local
+#            edits are never clobbered.
+# Blank lines and lines starting with # are ignored.
+#
+# Add a new module here and `beeupdate` picks it up on the next run
+# -- the updater itself never needs re-deploying for that.
+#
+# beebot.lua is deliberately absent: it lives on the ROBOT's
+# filesystem, not the PC's, and is installed by hand.
+
+# Entry points
+beeupdate.lua     /home/beeupdate.lua
+beebreeder.lua    /home/beebreeder.lua
+beeprobe.lua      /home/beeprobe.lua
+beeplan.lua       /home/beeplan.lua
+
+# Engine
+beerun.lua        /lib/beerun.lua
+beestep.lua       /lib/beestep.lua
+beeyard.lua       /lib/beeyard.lua
+beegenes.lua      /lib/beegenes.lua
+beeplanner.lua    /lib/beeplanner.lua
+
+# Registry caches and climate
+beedata.lua       /lib/beedata.lua
+beespecies.lua    /lib/beespecies.lua
+beeclimate.lua    /lib/beeclimate.lua
+beeadvice.lua     /lib/beeadvice.lua
+
+# Screens
+beeui.lua         /lib/beeui.lua
+beedash.lua       /lib/beedash.lua
+beesetup.lua      /lib/beesetup.lua
+beepreview.lua    /lib/beepreview.lua
+beesegs.lua       /lib/beesegs.lua
+beecolors.lua     /lib/beecolors.lua
+
+# Odds and ends
+beechat.lua       /lib/beechat.lua
+beefound.lua      /lib/beefound.lua
+beedump.lua       /lib/beedump.lua
+
+# Yours -- fetched once, then left alone forever
+beeconfig.lua     /lib/beeconfig.lua    keep

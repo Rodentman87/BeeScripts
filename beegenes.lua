@@ -2,7 +2,8 @@
 -- Pure bee logic: reading genomes, scoring, and choosing breeding pairs.
 -- No hardware access in this file.
 
-local config = require("beeconfig")
+local config  = require("beeconfig")
+local climate = require("beeclimate")
 
 local genes = {}
 
@@ -52,6 +53,10 @@ end
 function genes.label(bee)
   local s = tostring(bee.active) .. "/" .. tostring(bee.inactive)
   if bee.fertility then s = s .. " f" .. bee.fertility end
+  local t = bee.tol
+  if t and (t.tDown + t.tUp + t.hDown + t.hUp) > 0 then
+    s = s .. (" t%d/%d"):format(t.tDown + t.tUp, t.hDown + t.hUp)
+  end
   return s
 end
 
@@ -79,19 +84,25 @@ function genes.countTarget(drones, target)
   return n
 end
 
--- Sort by gene score, tiebreak toward higher fertility -- breeding
--- fecundity into the line helps every future cycle.
-local function byScoreThenFert(target)
+-- Sort by gene score, then by climate fitness for `role` ("p" or
+-- "d" -- see climate.rank), then toward higher fertility. Climate
+-- sits above fertility because a princess who cannot work in this
+-- hive yields nothing at all, however fecund she is; on setups with
+-- no species cache the climate term is constant and this is exactly
+-- the old score-then-fertility order.
+local function byScoreThenFert(target, role)
   return function(a, b)
     local sa, sb = genes.score(a, target), genes.score(b, target)
     if sa ~= sb then return sa > sb end
+    local ca, cb = climate.rank(a, target, role), climate.rank(b, target, role)
+    if ca ~= cb then return ca > cb end
     return (a.fertility or 0) > (b.fertility or 0)
   end
 end
 
 function genes.pickPair(princesses, drones, target)
-  table.sort(princesses, byScoreThenFert(target))
-  table.sort(drones,     byScoreThenFert(target))
+  table.sort(princesses, byScoreThenFert(target, "p"))
+  table.sort(drones,     byScoreThenFert(target, "d"))
 
   local p = princesses[1]
   local d = drones[1]
@@ -122,35 +133,6 @@ function genes.pickPair(princesses, drones, target)
   return p, d
 end
 
-function genes.dumpStack(stack)
-  local serialization = require("serialization")
-
-  -- Full blob goes to a file (way too big for a T1 screen)
-  local f = io.open(config.DUMP_PATH, "w")
-  if f then
-    f:write(serialization.serialize(stack, math.huge))
-    f:close()
-    print("Full dump written to " .. config.DUMP_PATH)
-    print("Browse it with:  edit " .. config.DUMP_PATH)
-  else
-    print("Could not write " .. config.DUMP_PATH)
-  end
-
-  -- Short summary of just the fields the breeder relies on
-  print("--- summary ---")
-  print("name:  " .. tostring(stack.name))
-  print("label: " .. tostring(stack.label))
-  local ind = stack.individual
-  if not ind then
-    print("individual: NIL  <-- genome not readable!")
-    return
-  end
-  print("analyzed: " .. tostring(ind.isAnalyzed))
-  local active, inactive = genes.speciesOf(stack)
-  print("active species:   " .. tostring(active))
-  print("inactive species: " .. tostring(inactive))
-end
-
 -- Recipe-aware pairing for a planned mutation step: assemble
 -- parentA x parentB (either orientation). When no princess actively
 -- expresses a recipe parent, CONVERT the princess line toward one
@@ -159,16 +141,20 @@ end
 -- Industrious princess before the Clay recipe is attempted.
 -- Third return: "recipe", "convert", or nil (greedy fallback).
 function genes.pickCross(princesses, drones, parentA, parentB, target)
-  local function findPrincess(sp)
-    for _, p in ipairs(princesses) do
-      if p.active == sp then return p end
+  -- Among bees actively expressing `sp`, take the one that fits the
+  -- hive best (climate.rank); chest order decides otherwise.
+  local function best(list, sp, role)
+    local found
+    for _, b in ipairs(list) do
+      if b.active == sp and (not found or
+         climate.rank(b, sp, role) > climate.rank(found, sp, role)) then
+        found = b
+      end
     end
+    return found
   end
-  local function findDrone(sp)
-    for _, d in ipairs(drones) do
-      if d.active == sp then return d end
-    end
-  end
+  local function findPrincess(sp) return best(princesses, sp, "p") end
+  local function findDrone(sp)    return best(drones, sp, "d") end
 
   -- Direct recipe: princess of one parent x drone of the other
   local p, d = findPrincess(parentA), findDrone(parentB)
@@ -180,18 +166,29 @@ function genes.pickCross(princesses, drones, parentA, parentB, target)
   -- Conversion: prefer a princess already carrying a recipe parent
   -- as her INACTIVE allele -- crossed with a drone of that species,
   -- the next princess very likely expresses it (often purebred).
+  -- Among equals the one this hive can house wins: she is the one
+  -- who has to sit in the apiary as the queen.
+  local bestP, bestD, bestRank = nil, nil, -1
   for _, pr in ipairs(princesses) do
-    if pr.inactive == parentA or pr.inactive == parentB then
-      local want = (pr.inactive == parentA) and parentA or parentB
-      local dr = findDrone(want)
-      if dr then return pr, dr, "convert" end
+    local want = (pr.inactive == parentA and parentA)
+              or (pr.inactive == parentB and parentB)
+    local dr = want and findDrone(want)
+    if dr and climate.rank(pr, target, "p") > bestRank then
+      bestP, bestD, bestRank = pr, dr, climate.rank(pr, target, "p")
     end
   end
-  -- Otherwise introduce a parent gene into the princess line
+  if bestP then return bestP, bestD, "convert" end
+
+  -- Otherwise introduce a parent gene into the princess line, again
+  -- through the princess this hive is least likely to freeze.
   local dr = findDrone(parentA) or findDrone(parentB)
-  if dr and princesses[1] then
-    return princesses[1], dr, "convert"
+  local pr = princesses[1]
+  for _, cand in ipairs(princesses) do
+    if climate.rank(cand, target, "p") > climate.rank(pr, target, "p") then
+      pr = cand
+    end
   end
+  if dr and pr then return pr, dr, "convert" end
 
   local gp, gd = genes.pickPair(princesses, drones, target)
   return gp, gd, nil

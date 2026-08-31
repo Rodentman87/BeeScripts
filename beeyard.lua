@@ -4,6 +4,7 @@
 local component = require("component")
 local config    = require("beeconfig")
 local genes     = require("beegenes")
+local climate   = require("beeclimate")
 
 local yard = {}
 local tp = component.transposer
@@ -21,7 +22,7 @@ function yard.scanChest(dump)
   for slot = 1, size do
     local stack = tp.getStackInSlot(config.chestSide, slot)
     if stack and dump and genes.isBee(stack) then
-      genes.dumpStack(stack)
+      require("beedump").stack(stack)
       dump = false
     end
     if genes.isBee(stack) and not genes.isAnalyzed(stack) then
@@ -30,7 +31,8 @@ function yard.scanChest(dump)
       local active, inactive = genes.speciesOf(stack)
       local bee = {slot = slot, active = active, inactive = inactive,
                    size = stack and stack.size or 1,
-                   fertility = genes.fertilityOf(stack)}
+                   fertility = genes.fertilityOf(stack),
+                   tol = climate.toleranceOf(stack)}
       if genes.isPrincess(stack) then
         table.insert(princesses, bee)
       elseif genes.isDrone(stack) then
@@ -76,6 +78,29 @@ function yard.scanBee(chestSlot, onTick)
     end
   end
   return false, "scan timed out -- machine powered?"
+end
+
+-- Best-effort read of the climate the hive reports, through the same
+-- Adapter the mutation registry comes from. A plain apiary takes it
+-- from the biome; an alveary shifts it with a Heater/Fan/
+-- Hygroregulator. Returns temperature, humidity spelled as the tile
+-- spells them, or nil when this build's driver exposes neither --
+-- beeclimate then falls back to the beeconfig values.
+function yard.detectClimate()
+  local ok, data = pcall(require, "beedata")
+  local api = ok and data.apiculture() or nil
+  if not api then return nil, nil end
+  local function ask(...)
+    for _, m in ipairs({...}) do
+      if api[m] then
+        local got, v = pcall(api[m])
+        if got and v ~= nil then return v end
+      end
+    end
+    return nil
+  end
+  return ask("getTemperature", "getBiomeTemperature", "temperature"),
+         ask("getHumidity", "getBiomeHumidity", "humidity")
 end
 
 function yard.insertPair(p, d)

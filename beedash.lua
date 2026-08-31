@@ -1,24 +1,22 @@
 -- beedash.lua  ->  install to /home/lib/beedash.lua
--- The running dashboard, built on the beeui core toolkit.
--- Species names render in their authentic colors (via beecolors);
--- glinting species shimmer, as does the bee when breeding one.
---
+-- The running dashboard, built on the beeui core toolkit. Species
+-- names render in their authentic colors (via beecolors); glinting
+-- species shimmer, as does the bee when breeding one.
 -- Layout (rows, at 80x25):
 --    1  header bar
---    2  status            (bee top-right)
---    3  cycle             (bee bottom-right)
---    4  current princess
---    5  current drone
+--    2  status  (bee top-right)      3  cycle (bee bottom-right)
+--    4  current princess             5  current drone
 --    6  chest + drone progress bar
 --  7-10 route pane: done / current / next / remainder
---   11  divider
--- 12-22 scrolling log
---   24  touch buttons: [ HALT ] [ CHAT ]
+--   11  divider                  12-22 scrolling log
+--   23  climate line          24  touch buttons: [ HALT ] [ CHAT ]
 
-local core   = require("beeui")
-local config = require("beeconfig")
-local colors = require("beecolors")
-local segs   = require("beesegs")
+local core    = require("beeui")
+local config  = require("beeconfig")
+local colors  = require("beecolors")
+local segs    = require("beesegs")
+local climate = require("beeclimate")
+local advice  = require("beeadvice")
 local C = core.C
 
 local ui = { hasGpu = core.hasGpu }
@@ -134,6 +132,21 @@ function ui.route(r)
   segs.set(10, {{text = r.tail or "", color = C.dim}})
 end
 
+-- Climate row: what the hive provides, and -- when the species being
+-- bred cannot live there -- both ways out of it. st is a
+-- beeclimate.status verdict, or nil when the registry has no say.
+function ui.climate(st)
+  local bad = st and not st.ok
+  if not core.hasGpu then
+    if bad then print(advice.line(st)) end
+    return
+  end
+  core.line(H - 2, bad and (advice.line(st) .. " -- " .. advice.fix(st))
+            or ("Climate: " .. climate.apiary().text ..
+                (st and (" -- " .. st.species .. " is at home here") or "")),
+            bad and C.bad or C.dim)
+end
+
 -- kind: nil (normal), "good", "warn", "bad"
 function ui.log(text, kind)
   if not core.hasGpu then print(text) return end
@@ -172,22 +185,15 @@ function ui.buzz()
   end
 end
 
-local function beeClear()
-  core.fillRect(W - BEE_W, 2, BEE_W, 2)
-end
-
 function ui.banner(text)
   if not core.hasGpu then print(text) return end
-  beeClear()
+  core.fillRect(W - BEE_W, 2, BEE_W, 2)   -- the bee makes way
   core.fillRect(1, 2, W, 1, C.good)
   core.text(2, 2, core.clip(text), C.headerFg, C.good)
   core.cursorBottom()
 end
 
-function ui.done()
-  core.cursorBottom()
-end
-
+ui.done          = core.cursorBottom
 ui.sleep         = core.sleep
 ui.haltRequested = core.haltRequested
 

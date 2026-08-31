@@ -16,9 +16,13 @@ local INF = math.huge
 -- muts:  list of {a=, b=, r=, chance=, cond=} from beedata.load()
 -- owned: set (species -> true) of species you already have
 -- target: species display name
+-- extra: optional species -> surcharge function (beeclimate uses it
+--        to make species this hive cannot house look expensive). It
+--        is added once per bred species, so it steers which route
+--        the search takes through the intermediates.
 -- Returns ordered list of steps {result, a, b, chance, cond,
 -- expCycles} with parents always before children, or nil + reason.
-function planner.compute(muts, owned, target)
+function planner.compute(muts, owned, target, extra)
   if owned[target] then
     return {}, "already owned"
   end
@@ -59,6 +63,10 @@ function planner.compute(muts, owned, target)
       end
     end
     visiting[s] = nil
+    -- The surcharge is the same for every option, so adding it here
+    -- rather than inside the loop cannot change which mutation wins
+    -- for s -- only how expensive s looks to whoever needs it.
+    if best < INF and extra then best = best + (extra(s) or 0) end
     memo[s] = {cost = best, mut = bestMut}
     return best
   end

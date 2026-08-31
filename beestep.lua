@@ -7,18 +7,20 @@ local ui      = require("beedash")
 local genes   = require("beegenes")
 local chat    = require("beechat")
 local planner = require("beeplanner")
+local climate = require("beeclimate")
+local advice  = require("beeadvice")
 
 local step = {}
 
 local announcedStep, prevStep
 local doneSteps
-local warnedNoRoute
+local warnedNoRoute, warnedClimate
 local bestDroneCount, stagnantCycles
 
 function step.reset()
   announcedStep, prevStep = nil, nil
   doneSteps = {}
-  warnedNoRoute = false
+  warnedNoRoute, warnedClimate = false, nil
   bestDroneCount, stagnantCycles = 0, 0
 end
 
@@ -64,6 +66,45 @@ local function announce(stepInfo, sub, stepKey, owned, target)
   end
 end
 
+-- The bare species allele is not the whole story: a bee of this
+-- species already in the chest may carry tolerance the allele lacks,
+-- and then there is nothing to warn about. Judge on the best we own.
+local function bestStatus(sub, lists)
+  local st = climate.status(sub)
+  if not st or st.ok then return st end
+  for _, list in ipairs(lists) do
+    for _, bee in ipairs(list) do
+      if bee.active == sub and bee.tol then
+        local mine = climate.status(sub, bee.tol)
+        if mine and mine.ok then return mine end
+      end
+    end
+  end
+  return st
+end
+
+-- Climate verdict for the species we are working on, onto the
+-- dashboard's climate row. The loud part (log + chat) fires once per
+-- species: a hive that cannot house this bee is a standing problem,
+-- not news every cycle. When something in the chest already carries
+-- the tolerance to cover the gap, say so -- pair selection is
+-- steering toward it, and that is the fix that needs no alveary.
+local function watchClimate(sub, princesses, drones)
+  local st = bestStatus(sub, {princesses, drones})
+  ui.climate(st)
+  if not st or st.ok or warnedClimate == sub then return end
+  warnedClimate = sub
+  ui.log(advice.line(st), "warn")
+  local donor = climate.donor(drones, st) or climate.donor(princesses, st)
+  if donor then
+    ui.log(("%s in the chest carries %s -- favoring it as a partner.")
+           :format(tostring(donor.active), advice.tolerance(st)), "good")
+  else
+    ui.log("Fix: " .. advice.fix(st), "warn")
+  end
+  chat.alert("BeeBreeder: " .. advice.line(st))
+end
+
 -- Evaluate one pass of the loop. Returns:
 --   {sub, stepInfo, isFinal, goalN, winner, droneCount}
 function step.evaluate(princesses, drones, muts, target)
@@ -77,7 +118,7 @@ function step.evaluate(princesses, drones, muts, target)
 
   local sub, stepInfo, planSteps = target, nil, nil
   if muts and not owned[target] then
-    local steps, why = planner.compute(muts, owned, target)
+    local steps, why = planner.compute(muts, owned, target, climate.routeCost)
     if steps and #steps > 0 then
       planSteps = steps
       stepInfo = steps[1]
@@ -97,6 +138,7 @@ function step.evaluate(princesses, drones, muts, target)
     or ("bank:" .. sub)
   announce(stepInfo, sub, stepKey, owned, target)
   drawRoute(stepInfo, planSteps or {}, sub, goalN)
+  watchClimate(sub, princesses, drones)
 
   local droneCount = genes.countTarget(drones, sub)
   ui.chest(#princesses, #drones, droneCount, goalN)
