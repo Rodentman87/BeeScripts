@@ -27,22 +27,30 @@ local function scoreSide(info, cur)
                + ((info.size == 9 or info.size == 12) and 2 or 0)
   s.scannerSide = (kind == "machine" and 8 or 0)
                 + ((not kind and info.size <= 8) and 3 or 0)
-  -- Cabinets: a filing cabinet is huge and holds ONE item ID, so a
-  -- big inventory with princesses and no drones (or the reverse) is
-  -- as clear a signal as any block name. The dump is the chest with
-  -- things in it that are not bees at all.
+  -- Cabinets: a filing cabinet holds ONE item ID, so one with
+  -- princesses and no drones (or the reverse) is as clear a signal
+  -- as any block name. The name makes it a cabinet (a huge chest-
+  -- kind inventory counts too, for a driver that names nothing);
+  -- the contents say which cabinet. An EMPTY cabinet cannot be told
+  -- apart, stays unset, and is set on the wiring screen. The dump is
+  -- the chest with things in it that are not bees at all.
   local bees = info.princesses + info.drones
-  local big  = (kind == "chest" and info.size >= 100) and 5 or 0
+  local cab  = sides.isCabinet(info) or (kind == "chest" and info.size >= 100)
+  local big  = cab and 5 or 0
   local junk = (info.items > 0 and bees == 0) and 1 or 0
   local chest = (kind == "chest" and 8 or 0) + (info.size >= 27 and 2 or 0)
-  s.chestSide     = chest + (info.princesses > 0 and 5 or 0)
-  -- The sorting chest only ever RECEIVES drones, so a chest full of
-  -- combs is not it, and a 540-slot cabinet is a library, not a bin.
+  -- A cabinet is never one of the plain chests: not the processing
+  -- chest (a one-item-ID box cannot hold both bees), not the sorting
+  -- chest (a library, not a bin), not the dump (combs come in many
+  -- kinds). Pushed well under the chest scores so a real chest on
+  -- any other side wins those roles outright.
+  local notChest = cab and 6 or 0
+  s.chestSide     = chest + (info.princesses > 0 and 5 or 0) - notChest
   s.sortChestSide = chest + (info.princesses == 0 and 2 or 0)
-                  - junk * 6 - (big > 0 and 6 or 0)
+                  - junk * 6 - notChest
   s.princessSide = big + ((info.princesses > 0 and info.drones == 0) and 6 or 0)
   s.droneSide    = big + ((info.drones > 0 and info.princesses == 0) and 6 or 0)
-  s.dumpSide     = (kind == "chest" and 3 or 0) + junk * 6
+  s.dumpSide     = (kind == "chest" and 3 or 0) + junk * 6 - notChest
   for key in pairs(s) do
     s[key] = s[key] + 0.1                      -- an occupied side beats none
     if cur[key] == info.side then s[key] = s[key] + 1 end

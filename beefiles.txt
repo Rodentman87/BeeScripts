@@ -29,6 +29,7 @@ beegenes.lua      /lib/beegenes.lua
 beeplanner.lua    /lib/beeplanner.lua
 
 # Transposer wiring -- which side is the chest, apiary, scanner
+beeattach.lua     /lib/beeattach.lua
 beesides.lua      /lib/beesides.lua
 beedetect.lua     /lib/beedetect.lua
 beeconf.lua       /lib/beeconf.lua

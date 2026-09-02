@@ -12,12 +12,15 @@
 -- ambiguous is left for beewire to ask about -- guessing wrong puts
 -- bees in the wrong box.
 
-local component = require("component")
-local config    = require("beeconfig")
+local config = require("beeconfig")
+local attach = require("beeattach")
 
 local S = {}
 
-S.NAMES = {[0] = "down", "up", "north", "south", "west", "east"}
+-- The looking half lives in beeattach; callers keep the old names.
+S.NAMES        = attach.NAMES
+S.probe        = attach.probe
+S.describeSide = attach.describeSide
 
 -- Optional roles may be left unset (`false` in an assignment): they
 -- fall back to the processing chest, which is the classic one-chest
@@ -26,8 +29,8 @@ S.ROLES = {
   {key = "chestSide",     label = "Processing chest", kind = "chest"},
   {key = "apiarySide",    label = "Apiary / alveary", kind = "apiary"},
   {key = "scannerSide",   label = "GT scanner",       kind = "machine"},
-  {key = "princessSide",  label = "Princess cabinet", kind = "chest", optional = true},
-  {key = "droneSide",     label = "Drone cabinet",    kind = "chest", optional = true},
+  {key = "princessSide",  label = "Princess cabinet", kind = "chest", optional = true, cabinet = true},
+  {key = "droneSide",     label = "Drone cabinet",    kind = "chest", optional = true, cabinet = true},
   {key = "dumpSide",      label = "Dump chest",       kind = "chest", optional = true},
   {key = "sortChestSide", label = "Sorting chest",    kind = "chest", optional = true},
 }
@@ -35,13 +38,8 @@ S.ROLES = {
 -- An assignment holds a side number, or anything else for "unset"
 function S.isSet(side) return type(side) == "number" end
 
-local BEE = {
-  ["forestry:beeprincessge"] = "princess",
-  ["forestry:beedronege"]    = "drone",
-  ["forestry:beequeenge"]    = "queen",
-}
-
 local APIARY  = {"apicult", "apiary", "alveary", "beehouse", "bee.house"}
+local CABINET = {"filing", "cabinet"}   -- tile.extrautils:filing
 local CHEST   = {"chest", "crate", "barrel", "drawer", "storage",
                  "container", "filing", "cabinet"}
 local MACHINE = {"scanner", "machine", "gt.block"}
@@ -65,63 +63,17 @@ local function kindOf(info)
 end
 S.kindOf = kindOf
 
-local function try(fn, ...)
-  if not fn then return nil end
-  local ok, v = pcall(fn, ...)
-  return ok and v or nil
+-- A filing cabinet is a chest to validation (kind "chest") but a
+-- library to detection: one item ID, hundreds of stacks. The name
+-- decides, not the size -- what the transposer reports for its size
+-- is the driver's business and has been seen well under 100.
+function S.isCabinet(info)
+  local block = tostring(info and info.block or ""):lower()
+  return block ~= "" and kw(block, CABINET)
 end
 
 function S.sideName(side)
   return S.NAMES[side] or ("side " .. tostring(side))
-end
-
---------------------------------------------------------------------
--- Look at all six sides. Returns probe[0..5], each entry:
---   {side, name, size, block, princesses, drones, queens, items}
--- size is nil when nothing is attached to that side.
---------------------------------------------------------------------
-function S.probe()
-  if not component.isAvailable("transposer") then
-    return nil, "no transposer -- is the computer wired to one?"
-  end
-  local tp = component.transposer
-  local p = {}
-  for side = 0, 5 do
-    local info = {side = side, name = S.NAMES[side],
-                  princesses = 0, drones = 0, queens = 0, items = 0}
-    local size = try(tp.getInventorySize, side)
-    if size and size > 0 then
-      info.size = size
-      info.block = try(tp.getInventoryName, side)
-      for slot = 1, math.min(size, 64) do
-        local stack = try(tp.getStackInSlot, side, slot)
-        if stack then
-          info.items = info.items + 1
-          local kind = BEE[tostring(stack.name):lower()]
-          if kind == "princess" then
-            info.princesses = info.princesses + (stack.size or 1)
-          elseif kind == "drone" then
-            info.drones = info.drones + (stack.size or 1)
-          elseif kind == "queen" then
-            info.queens = info.queens + 1
-          end
-        end
-      end
-    end
-    p[side] = info
-  end
-  return p
-end
-
--- One line describing a side, for the screen and the reports.
-function S.describeSide(info)
-  if not info or not info.size then return "nothing attached" end
-  local bits = {tostring(info.block or "unnamed block"), info.size .. " slots"}
-  if info.queens > 0     then bits[#bits + 1] = info.queens .. " queen" end
-  if info.princesses > 0 then bits[#bits + 1] = info.princesses .. " princess" end
-  if info.drones > 0     then bits[#bits + 1] = info.drones .. " drones" end
-  if info.items == 0     then bits[#bits + 1] = "empty" end
-  return table.concat(bits, ", ")
 end
 
 function S.current()
@@ -159,8 +111,22 @@ function S.validate(probe, assign)
         if kind and kind ~= role.kind then
           problems[#problems + 1] = ("%s: the %s side is %s")
                                     :format(role.label, S.sideName(side), info.block)
+        elseif S.isCabinet(info) and not role.cabinet then
+          -- A cabinet passes as a chest by kind, but a one-item-ID
+          -- box can be neither the processing chest nor a bin.
+          problems[#problems + 1] = ("%s: the %s side is a filing cabinet")
+                                    :format(role.label, S.sideName(side))
         end
       end
+    end
+  end
+  -- A cabinet nobody is using is a mistake in the making: the bees
+  -- it was placed for would go to the processing chest instead.
+  for side = 0, 5 do
+    if probe[side] and probe[side].size and S.isCabinet(probe[side])
+       and not seen[side] then
+      problems[#problems + 1] = ("Filing cabinet on the %s side has no role")
+                                :format(S.sideName(side))
     end
   end
   -- Two swaps no block name can see, because both sides hold the same
