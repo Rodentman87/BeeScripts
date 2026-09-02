@@ -1,9 +1,10 @@
 -- beeroute.lua  ->  install to /lib/beeroute.lua
 -- The wide dashboard's route pane: the plan as an indented tree
--- (beetree) with the dot pedigree (beepedigree) tucked into the
--- top-right corner when it fits beside the rows, and a summary line
--- along the bottom. Also loads the current step's species into the
--- exact-color palette slots.
+-- (beetree) at the top, the dot pedigree (beepedigree) centered
+-- beneath it, and a summary line along the bottom. The pedigree gets
+-- up to half the pane and the tree the rest; a plan too deep for
+-- that shows the tree alone. Also loads the current step's species
+-- into the exact-color palette slots.
 
 local core   = require("beeui")
 local config = require("beeconfig")
@@ -26,12 +27,6 @@ end
 
 function route.current() return current end
 
-local function rowWidth(row)
-  local n = 0
-  for _, s in ipairs(row.segs) do n = n + core.len(s.text) end
-  return n
-end
-
 -- r = {steps=, owned=, done=, cur=, rolls=} from beestep.drawRoute
 function route.show(r, target, avgCycle)
   if not (P and core.hasGpu) then return end
@@ -44,22 +39,22 @@ function route.show(r, target, avgCycle)
   core.fillRect(ix, iy, iw, ih)
   pedLay = nil
   local rows = {}
+  local room = ih - 2                -- rows above the gap + summary line
   local root = r.steps and r.cur and tree.build(r.steps, r.owned or {}, r.cur.r)
   if root then
     current = r.cur.r
     local done = {}
     for _, sp in ipairs(r.done or {}) do done[sp] = true end
-    rows = tree.fit(tree.rows(root, {done = done, rolls = r.rolls}), ih - 2)
-    -- The pedigree only has to clear the rows it sits beside
+    -- Pedigree below the tree as long as the tree keeps 8 rows
+    -- (plans up to five mutations deep on a 25-row pane)
     local lay = ped.layout(root)
-    local widest = 0
-    for i = 1, math.min(lay.h, #rows) do
-      widest = math.max(widest, rowWidth(rows[i]))
+    if lay.h <= room - 9 and lay.w <= iw then
+      pedLay = lay
+      pedX = ix + math.floor((iw - lay.w) / 2)
+      pedY = iy + ih - 1 - lay.h
+      room = room - lay.h - 1
     end
-    if lay.w + widest + 3 <= iw and lay.h <= ih - 2 then
-      pedLay, pedX, pedY = lay, ix + iw - lay.w - 1, iy
-      ped.draw(lay, pedX, pedY, false, true)
-    end
+    rows = tree.fit(tree.rows(root, {done = done, rolls = r.rolls}), room)
     segs.set(iy + ih - 1, {{text = tree.summary(r.steps, avgCycle), color = C.dim}}, iw, ix)
   elseif r.cur and r.cur.bank then
     current = r.cur.bank
@@ -69,12 +64,12 @@ function route.show(r, target, avgCycle)
   else
     current = nil
   end
+  -- Every row above the summary is (re)set so stale shimmer rows die
   for i = 1, ih - 2 do
     local row = rows[i]
-    local w = iw
-    if pedLay and i <= pedLay.h then w = pedX - ix - 1 end
-    segs.set(iy + i - 1, row and row.segs or {}, w, ix)
+    segs.set(iy + i - 1, row and row.segs or {}, iw, ix)
   end
+  if pedLay then ped.draw(pedLay, pedX, pedY, false, true) end
 end
 
 -- Pulse the pedigree's working node (called from the spinner)
