@@ -156,6 +156,7 @@ function ui.controlBar(want)
   local list = {
     {id = "breed", label = "[ " .. g("play") .. " BREED... ]",
      bg = C.good, fg = C.headerFg},
+    {id = "export", label = "[ " .. g("right") .. " EXPORT ]"},
     {id = "restock", label = "[ " .. g("plus") .. " RESTOCK LOW ]",
      bg = C.warn, fg = C.headerFg},
     {id = "tend", label = ("[ %s AUTO-TEND: %s ]"):format(g("pure"),

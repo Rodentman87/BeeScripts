@@ -25,6 +25,7 @@ beestock.lua      /lib/beestock.lua
 beebank.lua       /lib/beebank.lua
 beeyard.lua       /lib/beeyard.lua
 beestore.lua      /lib/beestore.lua
+beeexport.lua     /lib/beeexport.lua
 beegenes.lua      /lib/beegenes.lua
 beeplanner.lua    /lib/beeplanner.lua
 

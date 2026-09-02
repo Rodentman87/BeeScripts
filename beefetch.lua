@@ -36,6 +36,25 @@ local function ensureDir(path)
   end
 end
 
+-- Staging holds ONE file, not a release: /tmp is a small tmpfs and a
+-- manifest's worth of scripts fills it, after which wget starts
+-- failing on files that were never the problem. So every path out of
+-- a fetch drops its staging copy (that is what `done` is for), and
+-- the walk sweeps the directory first in case a run was interrupted.
+local function drop(path)
+  if path and filesystem.exists(path) then pcall(filesystem.remove, path) end
+end
+
+local function done(tmp, status, detail)
+  drop(tmp)
+  return status, detail
+end
+
+function fetch.clear()
+  local ok, iter = pcall(filesystem.list, fetch.STAGE)
+  if ok and iter then for name in iter do drop(fetch.STAGE .. name) end end
+end
+
 -- Byte for byte, sizes first: two files of different lengths cannot
 -- be the same, and that check alone settles almost every file.
 local function identical(a, b)
@@ -87,9 +106,8 @@ end
 function fetch.manifest(base, name, cache, onBad)
   local tmp = fetch.STAGE .. "manifest.txt"
   ensureDir(fetch.STAGE)
-  -- Clear it first: a stale copy from an earlier run in this session
-  -- parses perfectly well and would masquerade as a fresh download.
-  if filesystem.exists(tmp) then pcall(filesystem.remove, tmp) end
+  -- A stale copy from an earlier run would masquerade as a fresh one
+  drop(tmp)
   if shell.execute("wget -f " .. base .. name .. " " .. tmp) then
     local list = fetch.parse(tmp, onBad)
     if list and #list > 0 then
@@ -110,26 +128,26 @@ function fetch.one(base, e)
   if e.keep and filesystem.exists(e.dst) then return "kept", "kept" end
   ensureDir(fetch.STAGE)
   local tmp = fetch.STAGE .. e.src:gsub("[/\\]", "_")
-  if filesystem.exists(tmp) then pcall(filesystem.remove, tmp) end
+  drop(tmp)
   local ok = shell.execute("wget -f " .. base .. e.src .. " " .. tmp)
   local got = sizeOf(tmp)
   if not ok or not got or got == 0 then
-    return "failed", "wget failed -- old copy kept"
+    return done(tmp, "failed", "wget failed -- old copy kept")
   end
   local before = sizeOf(e.dst)
   if before and identical(tmp, e.dst) then
-    return "unchanged", fetch.kb(got)
+    return done(tmp, "unchanged", fetch.kb(got))
   end
   ensureDir(filesystem.path(e.dst))
   if filesystem.exists(e.dst) then pcall(filesystem.remove, e.dst) end
   local copied = pcall(filesystem.copy, tmp, e.dst)
   if not copied or (sizeOf(e.dst) or 0) == 0 then
-    return "failed", "could not write " .. e.dst
+    return done(tmp, "failed", "could not write " .. e.dst)
   end
   if before then
-    return "changed", ("%s -> %s"):format(fetch.kb(before), fetch.kb(got))
+    return done(tmp, "changed", fetch.kb(before) .. " -> " .. fetch.kb(got))
   end
-  return "new", "new " .. fetch.kb(got)
+  return done(tmp, "new", "new " .. fetch.kb(got))
 end
 
 -- Walk the manifest. report(event, ...) gets "start" (n), "file"
@@ -139,6 +157,7 @@ function fetch.all(base, list, report, only)
   local sum = {changed = 0, new = 0, unchanged = 0, kept = 0, failed = 0,
                libChanged = false, failedList = {}, total = #list}
   local t0 = computer.uptime()
+  fetch.clear()       -- whatever an interrupted run left in staging
   report("start", #list)
   for i, e in ipairs(list) do
     if only and not only[e.src] then

@@ -17,7 +17,13 @@ local input     = require("beeinput")
 local core = { hasGpu = component.isAvailable("gpu") and component.isAvailable("screen") }
 local gpu = core.hasGpu and component.gpu or nil
 
+-- The screen says how big it is; 80x25 is only the headless fallback.
+-- begin() re-reads it, but isWide() is asked before anything is drawn.
 local W, H = 80, 25
+if gpu then
+  local ok, w, h = pcall(gpu.maxResolution)
+  if ok and w and h then W, H = w, h end
+end
 
 core.keys = keyboard.keys
 -- Widths are screen cells, not characters: some glyphs (gear, pause

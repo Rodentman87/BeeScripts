@@ -140,17 +140,20 @@ function act.restockLow(why)
   return true
 end
 
-local function breed()
+-- exportPair: the same screen and the same plan, ending with a pure
+-- pair in the dump chest instead of in the library (beeexport).
+local function breed(exportPair)
   local ok, screen = pcall(require, "beebreedui")
   local job
   if ok and core.isWide() then
-    job = screen.run(tally, order, muts, extra)
+    job = screen.run(tally, order, muts, extra, exportPair)
   else
     job = require("beesetup").run()
   end
   if not job then return afterScreen() end
   if job.requirePure ~= nil then config.requirePure = job.requirePure end
   if job.chatEveryQueen ~= nil then config.chatEveryQueen = job.chatEveryQueen end
+  if job.export then return require("beeexport").run(job, runOne, ui.log) end
   runOne(job.target, {goal = job.droneGoal})
 end
 
@@ -171,7 +174,7 @@ local function rebuildCache()
 end
 
 local ACTIONS = {
-  breed = breed,
+  breed = breed, export = function() breed(true) afterScreen() end,
   restock = function() act.restockLow() end,
   rebuild = rebuildCache,
   settings = function()
@@ -184,10 +187,7 @@ local ACTIONS = {
     afterScreen()
   end,
   rescan = function() act.scan() act.redraw() end,
-  update = function()
-    require("shell").execute("beeupdate")
-    afterScreen()
-  end,
+  update = function() require("shell").execute("beeupdate") afterScreen() end,
 }
 
 function act.run(a)

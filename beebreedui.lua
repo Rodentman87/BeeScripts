@@ -7,6 +7,11 @@
 -- beesetup is still the 80x25 version and is what beehome falls back
 -- to. Returns a job {target, requirePure, droneGoal, chatEveryQueen}
 -- or nil when the user backs out.
+--
+-- The same screen serves EXPORT: pass exportPair and the only
+-- difference here is what the header and the start button say -- the
+-- picker, the plan and the preview are the ones you already know.
+-- beeexport does the rest once the job comes back with export set.
 
 local core   = require("beeui")
 local config = require("beeconfig")
@@ -46,13 +51,14 @@ end
 --------------------------------------------------------------------
 -- tally/order from beestock.tally; status is the header strip's extras
 --------------------------------------------------------------------
-function breedui.run(tally, order, muts, status)
+function breedui.run(tally, order, muts, status, exportPair)
   if not (core.hasGpu and core.isWide()) then return nil end
   core.begin()
   local W, H = geometry()
   local job = {requirePure = config.requirePure,
                droneGoal = config.droneGoal,
-               chatEveryQueen = config.chatEveryQueen}
+               chatEveryQueen = config.chatEveryQueen,
+               export = exportPair or nil}
   local owned = pick.owned(tally)
   local one   = pick.oneStep(muts, owned, tally)
   local two   = pick.twoStep(muts, owned, one)
@@ -93,7 +99,8 @@ function breedui.run(tally, order, muts, status)
 
   draw = function()
     core.clearButtons()
-    frame.header(g("play") .. " Breed", frame.statusItems(status))
+    frame.header(exportPair and (g("right") .. " Export a pair")
+                 or (g("play") .. " Breed"), frame.statusItems(status))
     segs.set(2, {{text = ("%d owned %s %d one step %s %d two steps %s %d out of season")
       :format(sum.owned, g("mid"), sum.one, g("mid"), sum.two, g("mid"),
               sum.offSeason), color = C.dim}}, W)
@@ -108,8 +115,10 @@ function breedui.run(tally, order, muts, status)
     brief.show(G.brief, sel, sel and route(sel) or nil, owned, tally)
 
     local bar = {
-      {id = "start", label = "[ " .. g("play") .. " START " ..
-       (sel or "...") .. " ]", bg = sel and C.good or C.barEmpty,
+      {id = "start", label = ("[ %s %s %s ]"):format(
+       exportPair and g("right") or g("play"),
+       exportPair and "EXPORT" or "START", sel or "..."),
+       bg = sel and C.good or C.barEmpty,
        fg = sel and C.headerFg or C.dim,
        onPress = function() if sel then state = "start" end end},
       {id = "pure", label = ("[ %s PURE: %s ]"):format(g("pure"),
