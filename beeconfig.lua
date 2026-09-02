@@ -26,6 +26,12 @@ return {
   stagnantWarn = 10,          -- warn if drone count flat for this many cycles
   chatEveryQueen = true,      -- chat message per new queen (false = milestones only)
 
+  -- Screen glyphs. `beeprobe glyphs` shows every box-drawing and
+  -- marker character the screens use; if the font lacks one, name it
+  -- here (asciiOnly = {bot = true}) or swap them all (asciiGlyphs).
+  asciiGlyphs = false,
+  asciiOnly   = {},
+
   -- Climate. A plain apiary takes its climate from the biome; an
   -- alveary can be steered with a Heater/Fan/Hygroregulator. These
   -- two are the fallback for when the hive won't tell us itself.

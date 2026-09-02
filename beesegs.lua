@@ -1,7 +1,8 @@
 -- beesegs.lua  ->  install to /home/lib/beesegs.lua
 -- Species-colored text segments for the dashboard and setup screens.
--- A segment is {text=, species=?, color=?}: explicit color wins, else
--- the species' authentic color, else plain text color.
+-- A segment is {text=, species=?, color=?, bg=?, bgSpecies=?}:
+-- explicit color wins, else the species' authentic color, else plain
+-- text color. bgSpecies paints the cell in a species color instead.
 --
 -- Glint species get a traveling shimmer: a 2-char purple window
 -- sweeps across the word, driven by real time (computer.uptime), so
@@ -21,7 +22,7 @@ segs.GLINT = 0xC080FF  -- enchantment-purple shimmer color
 local SPAN = 2         -- width of the traveling window, in chars
 local GAP  = 4         -- rest steps between sweeps of one word
 
-local liveRows = {}    -- row -> {segs=list, width=n}; glint rows re-render
+local liveRows = {}    -- "x0:row" -> {row, segs, width, x0}; glint rows re-render
 local lastStep = -1
 
 local function curStep()
@@ -38,16 +39,16 @@ end
 function segs.sweep(text, base, step)
   text = tostring(text)
   step = step or curStep()
-  local n = #text
+  local n, sub = core.len(text), core.sub
   local pos = (step % (n + SPAN + GAP)) - SPAN + 1
   local a, b = math.max(1, pos), math.min(n, pos + SPAN - 1)
   if b < a then
     return {{text = text, color = base}}
   end
   local runs = {}
-  if a > 1 then runs[#runs + 1] = {text = text:sub(1, a - 1), color = base} end
-  runs[#runs + 1] = {text = text:sub(a, b), color = segs.GLINT}
-  if b < n then runs[#runs + 1] = {text = text:sub(b + 1), color = base} end
+  if a > 1 then runs[#runs + 1] = {text = sub(text, 1, a - 1), color = base} end
+  runs[#runs + 1] = {text = sub(text, a, b), color = segs.GLINT}
+  if b < n then runs[#runs + 1] = {text = sub(text, b + 1), color = base} end
   return runs
 end
 
@@ -60,21 +61,28 @@ local function render(entry, step)
       end
     else
       local color = s.color or (s.species and colors.of(s.species)) or C.text
-      out[#out + 1] = {text = s.text, color = color}
+      -- bgSpecies paints the cell in that species' color (inverted
+      -- name, the "working on this" highlight); bg is an exact color.
+      local bg = s.bg or (s.bgSpecies and colors.of(s.bgSpecies)) or nil
+      out[#out + 1] = {text = s.text, color = color, bg = bg}
     end
   end
   return out
 end
 
-local function drawRow(row, entry, step)
-  core.segs(row, render(entry, step), entry.width)
+local function drawRow(entry, step)
+  core.segs(entry.row, render(entry, step), entry.width, entry.x0)
 end
 
--- Draw a segment row and remember it (for shimmer re-rendering)
-function segs.set(row, list, width)
-  local entry = {segs = list, width = width}
-  liveRows[row] = entry
-  drawRow(row, entry, curStep())
+-- Draw a segment row and remember it (for shimmer re-rendering).
+-- x0 is the first column cleared (default 1); text starts at x0+1.
+-- Rows are keyed by origin as well, so two panes side by side can
+-- both own row N. An empty list clears the row AND forgets it, so a
+-- glint species that used to sit there is not shimmered back in.
+function segs.set(row, list, width, x0)
+  local entry = {row = row, segs = list, width = width, x0 = x0}
+  liveRows[(x0 or 1) .. ":" .. row] = (#list > 0) and entry or nil
+  drawRow(entry, curStep())
 end
 
 local function entryHasGlint(entry)
@@ -85,8 +93,8 @@ local function entryHasGlint(entry)
 end
 
 function segs.redrawGlints(step)
-  for row, entry in pairs(liveRows) do
-    if entryHasGlint(entry) then drawRow(row, entry, step) end
+  for _, entry in pairs(liveRows) do
+    if entryHasGlint(entry) then drawRow(entry, step) end
   end
 end
 

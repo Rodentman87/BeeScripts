@@ -8,6 +8,7 @@
 --   beeprobe climate  does this hive report its own climate?
 --   beeprobe sides    what is on each transposer side (add `save`
 --                     to write the detected wiring to beeconfig)
+--   beeprobe glyphs   print every screen glyph to check the font
 --
 -- Run right after a fresh reboot for maximum free RAM -- the
 -- registry call materializes the whole mutation table at once.
@@ -110,6 +111,27 @@ elseif mode == "climate" then
 elseif mode == "sides" then
   require("beewire").report(args[2] == "save")
 
+elseif mode == "glyphs" then
+  -- Every non-ASCII character the screens use, next to its ASCII
+  -- stand-in. Anything that shows as a blank or a box here goes in
+  -- beeconfig: asciiOnly = {name = true}, or asciiGlyphs = true.
+  local theme = require("beetheme")
+  local ulen = require("unicode").len
+  local function pad(s, n) return s .. string.rep(" ", math.max(0, n - ulen(s))) end
+  print("glyph  name      ascii   (depth " .. theme.depth() .. ")")
+  local row = {}
+  for _, g in ipairs(theme.list()) do
+    row[#row + 1] = pad(g.uni, 3) .. " " .. pad(g.name, 9) .. " " .. pad(g.ascii, 4)
+    if #row == 3 then print(table.concat(row, "  ")) row = {} end
+  end
+  if #row > 0 then print(table.concat(row, "  ")) end
+  local g = theme.g
+  print(g("tl") .. string.rep(g("h"), 12) .. g("tr") .. "  " ..
+        g("dot") .. g("dot") .. " " .. g("ring") .. " " .. g("check"))
+  print(g("v") .. " panel test " .. g("v") .. "  " .. g("bl") ..
+        g("teeD") .. g("br") .. " " .. g("teeR") .. g("h") .. g("cross"))
+  print(g("bl") .. string.rep(g("h"), 12) .. g("br"))
+
 elseif mode == "stats" then
   local muts, species = data.load()
   if not muts then
@@ -121,5 +143,5 @@ elseif mode == "stats" then
   print(("Cache: %d mutations across %d species."):format(#muts, count))
 
 else
-  print("Usage: beeprobe [probe|build|stats|species|climate|sides]")
+  print("Usage: beeprobe [probe|build|stats|species|climate|sides|glyphs]")
 end

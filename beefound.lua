@@ -46,4 +46,29 @@ function found.ensure(label)
   end
 end
 
+-- Per-cycle upkeep for the engine: when the current step needs a
+-- different foundation than the one in place, have the robot swap
+-- it. Remembers what it placed and what it already complained about,
+-- so a missing block is retried quietly every cycle (restocking the
+-- robot self-heals) while an offline robot stops the retries.
+-- Returns "placed", "failed" or nil (nothing to do); why on failure.
+local lastPlaced, alerted = nil, nil
+
+function found.reset() lastPlaced, alerted = nil, nil end
+
+function found.maintain(needed)
+  if not (config.botEnabled and needed) or needed == lastPlaced then
+    return nil
+  end
+  local ok, why = found.ensure(needed)
+  if ok then
+    lastPlaced, alerted = needed, nil
+    return "placed"
+  end
+  if why == "robot did not respond" then lastPlaced = needed end
+  local fresh = (alerted ~= needed)
+  alerted = needed
+  return "failed", why, fresh
+end
+
 return found

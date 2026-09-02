@@ -34,8 +34,20 @@ beeclimate.lua    /lib/beeclimate.lua
 beeadvice.lua     /lib/beeadvice.lua
 
 # Screens
+beetheme.lua      /lib/beetheme.lua
+beeinput.lua      /lib/beeinput.lua
 beeui.lua         /lib/beeui.lua
 beedash.lua       /lib/beedash.lua
+beecompact.lua    /lib/beecompact.lua
+beewide.lua       /lib/beewide.lua
+beeroute.lua      /lib/beeroute.lua
+beehive.lua       /lib/beehive.lua
+beepanes.lua      /lib/beepanes.lua
+beecross.lua      /lib/beecross.lua
+beelog.lua        /lib/beelog.lua
+beetree.lua       /lib/beetree.lua
+beepedigree.lua   /lib/beepedigree.lua
+beepunnett.lua    /lib/beepunnett.lua
 beesetup.lua      /lib/beesetup.lua
 beepreview.lua    /lib/beepreview.lua
 beewire.lua       /lib/beewire.lua

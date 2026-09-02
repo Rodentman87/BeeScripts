@@ -13,8 +13,6 @@ local climate = require("beeclimate")
 local run = {}
 
 local cycle = 0
-local lastFoundation = nil   -- block the robot last placed successfully
-local alertedFoundation = nil -- block we've already alerted about
 
 local function queenTick(label)
   return function(elapsed)
@@ -76,8 +74,7 @@ local function breedCycle(princesses, drones, info)
 
   cycle = cycle + 1
   ui.cycle(cycle)
-  ui.princess(p)
-  ui.drone(d)
+  ui.pair(p, d, info.stepInfo, info.sub)
   ui.log(("C%d%s: %s x %s"):format(cycle, mode and (" [" .. mode .. "]") or "",
          genes.label(p), genes.label(d)))
   if config.chatEveryQueen then
@@ -98,18 +95,21 @@ local function breedCycle(princesses, drones, info)
   end
 
   yard.insertPair(p, d)
+  ui.queenStart()
   if yard.waitForCycle(queenTick("Queen working")) == "halted" then
     return false
   end
+  ui.queenDone()
   ui.status("Collecting output")
   yard.collectOutputs(warnLog)
   return true
 end
 
 function run.start(target, muts)
-  ui.init(target)
+  ui.init(target, muts)
   yard.sleep = ui.sleep  -- make all waits keyboard/touch-aware
   step.reset()
+  found.reset()
   cycle = 0
   ui.log("Breeding toward: " .. target)
   ui.log("Press Q (or the HALT button) to stop gracefully.")
@@ -131,6 +131,14 @@ function run.start(target, muts)
 
   while true do
     if ui.haltRequested() then userHalt() return end
+    -- PAUSE (wide dashboard button): the queen already finished and
+    -- her output is home, so waiting here loses nothing.
+    while ui.pauseRequested() and not ui.haltRequested() do
+      ui.status("PAUSED -- press RESUME")
+      ui.buzz()
+      ui.sleep(config.animDelay or 0.5)
+    end
+    if ui.haltRequested() then userHalt() return end
 
     climate.autodetect()  -- an alveary block added mid-run should count
     local princesses, drones, unanalyzed = yard.scanChest(false)
@@ -138,6 +146,7 @@ function run.start(target, muts)
     if #unanalyzed > 0 then
       if not analyzeAll(unanalyzed) then break end
     else
+      ui.stock(princesses, drones)
       local info = step.evaluate(princesses, drones, muts, target)
 
       if #princesses == 0 then
@@ -162,29 +171,15 @@ function run.start(target, muts)
       -- Foundation automation: when the current step needs a
       -- different foundation block, have the robot swap it first.
       local needed = info.stepInfo and found.parse(info.stepInfo.cond)
-      if config.botEnabled and needed and needed ~= lastFoundation then
-        ui.status("Foundation: " .. needed)
-        local ok, why = found.ensure(needed)
-        if ok then
-          lastFoundation = needed
-          alertedFoundation = nil
-          ui.log("Robot placed foundation: " .. needed, "good")
-          chat.say("BeeBreeder: foundation swapped to " .. needed)
-        else
-          if alertedFoundation ~= needed then
-            alertedFoundation = needed
-            ui.log("Foundation FAIL: " .. tostring(why), "bad")
-            chat.alert(("BeeBreeder: robot couldn't place %s -- %s")
-                       :format(needed, tostring(why)))
-          end
-          if why == "robot did not respond" then
-            -- robot offline: stop retrying this step to avoid a
-            -- timeout stall every cycle
-            lastFoundation = needed
-          end
-          -- otherwise (block missing) retry next cycle: restocking
-          -- the robot self-heals without a restart
-        end
+      if config.botEnabled and needed then ui.status("Foundation: " .. needed) end
+      local outcome, why, fresh = found.maintain(needed)
+      if outcome == "placed" then
+        ui.log("Robot placed foundation: " .. needed, "good")
+        chat.say("BeeBreeder: foundation swapped to " .. needed)
+      elseif outcome == "failed" and fresh then
+        ui.log("Foundation FAIL: " .. tostring(why), "bad")
+        chat.alert(("BeeBreeder: robot couldn't place %s -- %s")
+                   :format(needed, tostring(why)))
       end
 
       if not breedCycle(princesses, drones, info) then

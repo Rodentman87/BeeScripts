@@ -129,6 +129,7 @@ function wire.run()
     core.pump(config.animDelay or 0.5)
   end
   core.setKeyHandler(nil)
+  core.finish()   -- stock palette back before the shell gets the screen
 
   if state == "cancel" then return nil end
   if state == "use" then

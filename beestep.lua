@@ -16,17 +16,22 @@ local announcedStep, prevStep
 local doneSteps
 local warnedNoRoute, warnedClimate
 local bestDroneCount, stagnantCycles
+local stepCycles              -- evaluations spent on the current step
 
 function step.reset()
   announcedStep, prevStep = nil, nil
   doneSteps = {}
   warnedNoRoute, warnedClimate = false, nil
   bestDroneCount, stagnantCycles = 0, 0
+  stepCycles = 0
 end
 
-local function drawRoute(stepInfo, planSteps, sub, goalN)
-  local r = {done = doneSteps}
+-- The route pane gets the whole plan (steps, owned set, roll count)
+-- for the tree view, plus the compact done/cur/nxt/tail digest.
+local function drawRoute(stepInfo, planSteps, sub, goalN, owned)
+  local r = {done = doneSteps, owned = owned, rolls = stepCycles}
   if stepInfo then
+    r.steps = planSteps
     r.cur = {a = stepInfo.a, b = stepInfo.b, r = sub,
              chance = stepInfo.chance, exp = stepInfo.expCycles}
     local n = planSteps[2]
@@ -45,7 +50,7 @@ end
 local function announce(stepInfo, sub, stepKey, owned, target)
   if stepKey == announcedStep then return end
   announcedStep = stepKey
-  bestDroneCount, stagnantCycles = 0, 0
+  bestDroneCount, stagnantCycles, stepCycles = 0, 0, 0
   -- A completed mutation step means the species now EXISTS (some bee
   -- actively expresses it) -- right for intermediates, but never list
   -- the overall target as done: the bank line represents it, and with
@@ -137,11 +142,13 @@ function step.evaluate(princesses, drones, muts, target)
     and (stepInfo.a .. "+" .. stepInfo.b .. ">" .. sub)
     or ("bank:" .. sub)
   announce(stepInfo, sub, stepKey, owned, target)
-  drawRoute(stepInfo, planSteps or {}, sub, goalN)
+  stepCycles = stepCycles + 1
+  drawRoute(stepInfo, planSteps or {}, sub, goalN, owned)
   watchClimate(sub, princesses, drones)
 
   local droneCount = genes.countTarget(drones, sub)
-  ui.chest(#princesses, #drones, droneCount, goalN)
+  local finalCount = (not isFinal) and genes.countTarget(drones, target) or nil
+  ui.chest(#princesses, #drones, droneCount, goalN, sub, finalCount, config.droneGoal)
 
   local winner = nil
   for _, p in ipairs(princesses) do
