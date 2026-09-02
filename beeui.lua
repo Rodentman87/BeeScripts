@@ -20,9 +20,19 @@ local gpu = core.hasGpu and component.gpu or nil
 local W, H = 80, 25
 
 core.keys = keyboard.keys
-core.len  = unicode.len
+-- Widths are screen cells, not characters: some glyphs (gear, pause
+-- bars) take two cells in the OC font, and wlen/wtrunc know that.
+core.len  = unicode.wlen
 core.sub  = unicode.sub
 core.g    = theme.g      -- named glyphs with ASCII fallbacks
+
+-- Longest prefix of text that fits in `width` cells
+function core.trunc(text, width)
+  text = tostring(text)
+  if width <= 0 then return "" end
+  if unicode.wlen(text) <= width then return text end
+  return unicode.wtrunc(text, width + 1)
+end
 
 core.C = {
   bg       = 0x000000,
@@ -61,7 +71,7 @@ end
 function core.clip(text, max)
   text = tostring(text)
   max = max or (W - 2)
-  if core.len(text) > max then text = core.sub(text, 1, max - 3) .. "..." end
+  if core.len(text) > max then text = core.trunc(text, max - 3) .. "..." end
   return text
 end
 
@@ -106,8 +116,8 @@ function core.segs(row, segs, width, x0)
     local text = tostring(s.text)
     local n = core.len(text)
     if x + n - 1 > right then
-      n = math.max(0, right - x + 1)
-      text = core.sub(text, 1, n)
+      text = core.trunc(text, right - x + 1)
+      n = core.len(text)
     end
     if n == 0 then break end
     if s.bg then gpu.setBackground(s.bg) end

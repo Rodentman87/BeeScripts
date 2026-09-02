@@ -50,10 +50,13 @@ function route.show(r, target, avgCycle)
     local done = {}
     for _, sp in ipairs(r.done or {}) do done[sp] = true end
     rows = tree.fit(tree.rows(root, {done = done, rolls = r.rolls}), ih - 2)
-    local widest = 0
-    for _, row in ipairs(rows) do widest = math.max(widest, rowWidth(row)) end
+    -- The pedigree only has to clear the rows it sits beside
     local lay = ped.layout(root)
-    if lay.w + widest + 4 <= iw and lay.h <= ih - 2 then
+    local widest = 0
+    for i = 1, math.min(lay.h, #rows) do
+      widest = math.max(widest, rowWidth(rows[i]))
+    end
+    if lay.w + widest + 3 <= iw and lay.h <= ih - 2 then
       pedLay, pedX, pedY = lay, ix + iw - lay.w - 1, iy
       ped.draw(lay, pedX, pedY, false, true)
     end

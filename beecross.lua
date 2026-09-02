@@ -29,7 +29,7 @@ local function at(x, y, list, maxX)
     local text = tostring(s.text)
     local room = maxX - x + 1
     if room <= 0 then return end
-    if core.len(text) > room then text = core.sub(text, 1, room) end
+    text = core.trunc(text, room)
     core.text(x, y, text, s.color or (s.species and colors.of(s.species)) or C.text, s.bg)
     x = x + core.len(text)
   end

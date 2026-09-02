@@ -53,10 +53,9 @@ local function meta(n, opts)
   list[#list + 1] = {text = ("%3.0f%%  ~%d cyc"):format(s.chance, s.expCycles),
                      color = C.dim}
   if n.state == "now" then
-    local t = "   " .. g("arrowL") .. " now"
-    if opts.rolls then
-      t = t .. (" %s roll %d of ~%d"):format(g("mid"), opts.rolls, s.expCycles)
-    end
+    -- Short on purpose: this row shares the pane with the pedigree
+    local t = "  " .. g("arrowL") .. (opts.rolls
+              and (" roll %d/~%d"):format(opts.rolls, s.expCycles) or " now")
     list[#list + 1] = {text = t, color = C.warn}
   end
   local block = found.parse(s.cond)
