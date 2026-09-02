@@ -108,7 +108,7 @@ function fetch.manifest(base, name, cache, onBad)
   ensureDir(fetch.STAGE)
   -- A stale copy from an earlier run would masquerade as a fresh one
   drop(tmp)
-  if shell.execute("wget -f " .. base .. name .. " " .. tmp) then
+  if shell.execute("wget -fq " .. base .. name .. " " .. tmp) then
     local list = fetch.parse(tmp, onBad)
     if list and #list > 0 then
       pcall(filesystem.copy, tmp, cache)
@@ -129,7 +129,7 @@ function fetch.one(base, e)
   ensureDir(fetch.STAGE)
   local tmp = fetch.STAGE .. e.src:gsub("[/\\]", "_")
   drop(tmp)
-  local ok = shell.execute("wget -f " .. base .. e.src .. " " .. tmp)
+  local ok = shell.execute("wget -fq " .. base .. e.src .. " " .. tmp)
   local got = sizeOf(tmp)
   if not ok or not got or got == 0 then
     return done(tmp, "failed", "wget failed -- old copy kept")

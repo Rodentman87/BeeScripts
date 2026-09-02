@@ -83,7 +83,23 @@ if hasUi then
   report = ui.report
 end
 
-local sum = fetch.all(BASE, list, report)
+-- Anything printed while the screen is up scrolls the drawn frame
+-- away under itself. wget is quiet about success (-fq in beefetch)
+-- but not about failure, and not every build's wget knows -q at all,
+-- so with the UI running its output goes to a file and the report on
+-- screen stays the thing you read.
+local function walk(...)
+  if not hasUi then return fetch.all(...) end
+  local out = io.output()
+  local sink = io.open("/tmp/beeup.log", "w") or io.open("/home/.beeup.log", "w")
+  if sink then io.output(sink) end
+  local ok, sum = pcall(fetch.all, ...)
+  if sink then io.output(out) sink:close() end
+  if not ok then error(sum, 0) end
+  return sum
+end
+
+local sum = walk(BASE, list, report)
 
 -- Boot into the home screen. Done after the install so the line only
 -- appears once beehome is actually on disk, and only once ever.
@@ -103,7 +119,7 @@ while true do
     local only = {}
     for _, e in ipairs(sum.failedList) do only[e.src] = true end
     ui.begin(BASE, #list, source)
-    local again = fetch.all(BASE, list, ui.report, only)
+    local again = walk(BASE, list, ui.report, only)
     -- A retry only knows about the files it retried, but a /lib
     -- module that changed on the first pass still means reboot.
     again.libChanged = again.libChanged or sum.libChanged
