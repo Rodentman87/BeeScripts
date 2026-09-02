@@ -31,7 +31,7 @@ if args[2] then
 else
   local ok, yard = pcall(require, "beeyard")
   local scanned = ok and select(1, pcall(function()
-    local princesses, drones = yard.scanChest(false)
+    local princesses, drones = yard.scan(false)
     for _, b in ipairs(princesses) do
       if b.active then owned[b.active] = true end
       if b.inactive then owned[b.inactive] = true end

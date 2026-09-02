@@ -13,6 +13,7 @@ local segs    = require("beesegs")
 local colors  = require("beecolors")
 local climate = require("beeclimate")
 local advice  = require("beeadvice")
+local stock   = require("beestock")
 local hive    = require("beehive")
 local C, g = core.C, core.g
 
@@ -79,22 +80,15 @@ end
 --------------------------------------------------------------------
 -- Chest stock
 --------------------------------------------------------------------
+-- Rows are marked with the floor state: under it, over it, or exactly
+-- on it (nothing). Same tally the stock gate runs on, so what the
+-- pane says and what the engine does can never drift apart.
+local MARK = {low = {"triD", C.bad}, surplus = {"triU", C.good}}
+
 function panes.stock(princesses, drones)
   if not (G and core.hasGpu) then return end
   local P = G.chest
-  local tally, order = {}, {}
-  local function add(bee, kind)
-    local sp = bee.active or "?"
-    if not tally[sp] then
-      tally[sp] = {p = 0, d = 0}
-      order[#order + 1] = sp
-    end
-    tally[sp][kind] = tally[sp][kind] + (bee.size or 1)
-  end
-  for _, b in ipairs(princesses) do add(b, "p") end
-  for _, b in ipairs(drones) do add(b, "d") end
-  table.sort(order, function(a, b)
-    return (tally[a].p + tally[a].d) > (tally[b].p + tally[b].d) end)
+  local tally, order = stock.tally(princesses, drones)
   local rows, most = P.h - 3, 1
   for _, sp in ipairs(order) do most = math.max(most, tally[sp].p + tally[sp].d) end
   local x0, barX, barW = P.x + 1, P.x + 15, 28
@@ -107,6 +101,9 @@ function panes.stock(princesses, drones)
       local filled = math.floor(barW * (t.p + t.d) / most + 0.5)
       core.fillRect(barX, row, filled, 1, colors.of(sp))
       core.text(barX + barW + 2, row, ("%3d  %dP %dD"):format(t.p + t.d, t.p, t.d), C.dim)
+      -- One cell between the name and the bar, where nothing else goes
+      local mark = MARK[stock.state(t)]
+      if mark then core.text(barX - 1, row, g(mark[1]), mark[2]) end
     elseif sp then
       segs.set(row, {{text = ("+%d more species"):format(#order - rows + 1),
                       color = C.dim2}}, P.w - 2, x0)

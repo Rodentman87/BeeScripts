@@ -1,10 +1,13 @@
--- beeyard.lua  ->  install to /home/lib/beeyard.lua
--- All physical-world operations: the transposer, the chest, the apiary.
+-- beeyard.lua  ->  install to /lib/beeyard.lua
+-- The apiary and the scanner: putting a pair in, waiting the queen
+-- out, emptying the output slots. The bee library it draws from --
+-- which side keeps princesses, drones and everything else -- lives in
+-- beestore and is re-exported here, so callers still say yard.scan.
 
 local component = require("component")
 local config    = require("beeconfig")
 local genes     = require("beegenes")
-local climate   = require("beeclimate")
+local store     = require("beestore")
 
 local yard = {}
 local tp = component.transposer
@@ -13,42 +16,21 @@ local tp = component.transposer
 -- script injects a keyboard-aware version so Q can request a halt.
 yard.sleep = os.sleep
 
-function yard.scanChest(dump)
-  local princesses, drones, unanalyzed = {}, {}, {}
-  local size = tp.getInventorySize(config.chestSide)
-  if not size then
-    error("No inventory found on chestSide -- check beeconfig")
-  end
-  for slot = 1, size do
-    local stack = tp.getStackInSlot(config.chestSide, slot)
-    if stack and dump and genes.isBee(stack) then
-      require("beedump").stack(stack)
-      dump = false
-    end
-    if genes.isBee(stack) and not genes.isAnalyzed(stack) then
-      table.insert(unanalyzed, slot)
-    else
-      local active, inactive = genes.speciesOf(stack)
-      local bee = {slot = slot, active = active, inactive = inactive,
-                   size = stack and stack.size or 1,
-                   fertility = genes.fertilityOf(stack),
-                   tol = climate.toleranceOf(stack)}
-      if genes.isPrincess(stack) then
-        table.insert(princesses, bee)
-      elseif genes.isDrone(stack) then
-        table.insert(drones, bee)
-      end
-    end
-  end
-  return princesses, drones, unanalyzed
-end
+yard.sides       = store.sides
+yard.eachStack   = store.eachStack
+yard.scan        = store.scan
+yard.cleanDrones = store.cleanDrones
 
 -- Run one bee through the GT scanner: insert it (no hardcoded slot --
 -- GT slot layouts vary by tier/side config), then watch the scanner's
 -- whole inventory until a bee reports isAnalyzed, and pull it home.
--- Returns true, or false + reason.
-function yard.scanBee(chestSlot, onTick)
-  local moved = tp.transferItem(config.chestSide, config.scannerSide, 1, chestSlot)
+-- The bee is found afresh HERE rather than taken from a slot number
+-- the caller saved: cabinets re-sort on every insert, so slots from
+-- an older scan are fiction. Returns true, or false + reason.
+function yard.scanBee(side, onTick)
+  local from = store.findUnanalyzed(side)
+  if not from then return false, "no unanalyzed bee left to scan" end
+  local moved = tp.transferItem(side, config.scannerSide, 1, from)
   if moved == 0 then
     return false, "scanner refused item -- check scannerSide/side config"
   end
@@ -64,17 +46,18 @@ function yard.scanBee(chestSlot, onTick)
     for slot = 1, size do
       local stack = tp.getStackInSlot(config.scannerSide, slot)
       if genes.isBee(stack) and genes.isAnalyzed(stack) then
-        tp.transferItem(config.scannerSide, config.chestSide, 64, slot)
+        tp.transferItem(config.scannerSide, side, 64, slot)
         return true
       end
     end
   end
 
-  -- Timed out: reclaim the bee so it isn't stranded in the machine
+  -- Timed out: reclaim the bee so it isn't stranded in the machine,
+  -- back to the side it came from rather than wherever is default.
   local size = tp.getInventorySize(config.scannerSide) or 0
   for slot = 1, size do
     if genes.isBee(tp.getStackInSlot(config.scannerSide, slot)) then
-      tp.transferItem(config.scannerSide, config.chestSide, 64, slot)
+      tp.transferItem(config.scannerSide, side, 64, slot)
     end
   end
   return false, "scan timed out -- machine powered?"
@@ -103,10 +86,12 @@ function yard.detectClimate()
          ask("getHumidity", "getBiomeHumidity", "humidity")
 end
 
+-- The pair comes from wherever each bee was found, which is not the
+-- same side once princesses and drones live in separate cabinets.
 function yard.insertPair(p, d)
-  local ok1 = tp.transferItem(config.chestSide, config.apiarySide, 1,
+  local ok1 = tp.transferItem(p.side, config.apiarySide, 1,
                               p.slot, config.PRINCESS_SLOT)
-  local ok2 = tp.transferItem(config.chestSide, config.apiarySide, 1,
+  local ok2 = tp.transferItem(d.side, config.apiarySide, 1,
                               d.slot, config.DRONE_SLOT)
   if ok1 == 0 or ok2 == 0 then
     error("Failed to insert bees into apiary -- check beeconfig")
@@ -137,12 +122,18 @@ function yard.waitForCycle(onTick)
   end
 end
 
+-- Is a queen working right now? The home screen asks before it
+-- offers to start anything of its own.
+function yard.busy()
+  return tp.getStackInSlot(config.apiarySide, config.PRINCESS_SLOT) ~= nil
+end
+
 -- Startup recovery: if a previous run was stopped mid-cycle, a queen
 -- may still be working in the apiary and offspring may be sitting in
 -- its output slots. Wait her out and sweep everything home.
 -- Returns "done" or "halted".
 function yard.recover(onTick, onWarn)
-  if tp.getStackInSlot(config.apiarySide, config.PRINCESS_SLOT) ~= nil then
+  if yard.busy() then
     if yard.waitForCycle(onTick) == "halted" then
       return "halted"
     end
@@ -151,43 +142,27 @@ function yard.recover(onTick, onWarn)
   return "done"
 end
 
--- onWarn(message) is called if an output slot can't be emptied.
+-- Empty the apiary's output slots, each stack to the side that keeps
+-- that kind of thing. A refusal (cabinet full, or one that will not
+-- take an unanalyzed bee) falls back to the dump side before it
+-- becomes a warning: a stuck output slot stalls the whole run.
+-- onWarn(message) is called if a slot still cannot be emptied.
 function yard.collectOutputs(onWarn)
+  local s = store.sides()
   for _, slot in ipairs(config.OUTPUT_SLOTS) do
-    if tp.getStackInSlot(config.apiarySide, slot) then
-      local moved = tp.transferItem(config.apiarySide, config.chestSide, 64, slot)
+    local stack = tp.getStackInSlot(config.apiarySide, slot)
+    if stack then
+      local to = (genes.isPrincess(stack) and s.princess)
+              or (genes.isDrone(stack) and s.drone) or s.dump
+      local moved = tp.transferItem(config.apiarySide, to, 64, slot)
+      if moved == 0 and to ~= s.dump then
+        moved = tp.transferItem(config.apiarySide, s.dump, 64, slot)
+      end
       if moved == 0 and onWarn then
-        onWarn("chest full? slot " .. slot .. " stuck")
+        onWarn("storage full? apiary slot " .. slot .. " stuck")
       end
     end
   end
-end
-
--- Post-run cleanup: sweep hybrid drones (active ~= inactive species)
--- from the processing chest into the sorting chest -- EXCEPT drones
--- that count toward the target bank (with requirePure off, a
--- Target/Other hybrid is part of the counted stock and stays).
--- Drones with unreadable genomes are left alone. Princesses are
--- never touched. Returns beesMoved, stacksStuck.
-function yard.cleanDrones(target, onWarn)
-  local _, drones = yard.scanChest(false)
-  local movedBees, stuck = 0, 0
-  for _, d in ipairs(drones) do
-    local hybrid = d.active and d.inactive and d.active ~= d.inactive
-    if hybrid and not genes.isWinner(d, target) then
-      local moved = tp.transferItem(config.chestSide, config.sortChestSide, 64, d.slot)
-      if moved > 0 then
-        movedBees = movedBees + moved
-      else
-        stuck = stuck + 1
-        if onWarn then
-          onWarn("could not move drones from slot " .. d.slot ..
-                 " -- sorting chest full/missing?")
-        end
-      end
-    end
-  end
-  return movedBees, stuck
 end
 
 return yard

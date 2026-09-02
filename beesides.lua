@@ -5,11 +5,12 @@
 -- The transposer answers, per side: is there an inventory, how big,
 -- what block is it (getInventoryName -- best effort, not every
 -- driver answers) and what is in it. That names the apiary and the
--- scanner outright. The two chests are the same block, so they are
--- told apart by their contents: the processing chest is the one
--- holding PRINCESSES (cleanDrones only ever sends drones to the
--- sorting chest). Anything still ambiguous is left for beewire to
--- ask about -- guessing wrong puts bees in the wrong box.
+-- scanner outright. Chests and cabinets are all the same kind of
+-- block, so contents tell them apart: the processing chest holds
+-- PRINCESSES, a cabinet holds one item ID and so is all princesses
+-- or all drones, the dump has no bees at all. Anything still
+-- ambiguous is left for beewire to ask about -- guessing wrong puts
+-- bees in the wrong box.
 
 local component = require("component")
 local config    = require("beeconfig")
@@ -18,12 +19,21 @@ local S = {}
 
 S.NAMES = {[0] = "down", "up", "north", "south", "west", "east"}
 
+-- Optional roles may be left unset (`false` in an assignment): they
+-- fall back to the processing chest, which is the classic one-chest
+-- build. Only the first three are ever required.
 S.ROLES = {
   {key = "chestSide",     label = "Processing chest", kind = "chest"},
   {key = "apiarySide",    label = "Apiary / alveary", kind = "apiary"},
   {key = "scannerSide",   label = "GT scanner",       kind = "machine"},
-  {key = "sortChestSide", label = "Sorting chest",    kind = "chest"},
+  {key = "princessSide",  label = "Princess cabinet", kind = "chest", optional = true},
+  {key = "droneSide",     label = "Drone cabinet",    kind = "chest", optional = true},
+  {key = "dumpSide",      label = "Dump chest",       kind = "chest", optional = true},
+  {key = "sortChestSide", label = "Sorting chest",    kind = "chest", optional = true},
 }
+
+-- An assignment holds a side number, or anything else for "unset"
+function S.isSet(side) return type(side) == "number" end
 
 local BEE = {
   ["forestry:beeprincessge"] = "princess",
@@ -32,7 +42,8 @@ local BEE = {
 }
 
 local APIARY  = {"apicult", "apiary", "alveary", "beehouse", "bee.house"}
-local CHEST   = {"chest", "crate", "barrel", "drawer", "storage", "container"}
+local CHEST   = {"chest", "crate", "barrel", "drawer", "storage",
+                 "container", "filing", "cabinet"}
 local MACHINE = {"scanner", "machine", "gt.block"}
 
 local function kw(s, list)
@@ -57,8 +68,7 @@ S.kindOf = kindOf
 local function try(fn, ...)
   if not fn then return nil end
   local ok, v = pcall(fn, ...)
-  if ok then return v end
-  return nil
+  return ok and v or nil
 end
 
 function S.sideName(side)
@@ -103,7 +113,7 @@ function S.probe()
   return p
 end
 
--- One line describing what is on a side, for the screen and reports.
+-- One line describing a side, for the screen and the reports.
 function S.describeSide(info)
   if not info or not info.size then return "nothing attached" end
   local bits = {tostring(info.block or "unnamed block"), info.size .. " slots"}
@@ -116,10 +126,12 @@ end
 
 function S.current()
   local a = {}
-  for _, role in ipairs(S.ROLES) do a[role.key] = config[role.key] end
+  for _, role in ipairs(S.ROLES) do
+    local side = config[role.key]
+    a[role.key] = S.isSet(side) and side or false
+  end
   return a
 end
-
 
 --------------------------------------------------------------------
 -- Is an assignment usable? Structure first (something there, no two
@@ -130,40 +142,58 @@ function S.validate(probe, assign)
   local problems, seen = {}, {}
   for _, role in ipairs(S.ROLES) do
     local side = assign[role.key]
-    local info = type(side) == "number" and probe[side] or nil
-    if not info or not info.size then
-      problems[#problems + 1] = ("%s: nothing on the %s side")
-                                :format(role.label, S.sideName(side))
-    elseif seen[side] then
-      problems[#problems + 1] = ("%s: shares the %s side with %s")
-                                :format(role.label, S.sideName(side), seen[side])
-    else
-      seen[side] = role.label
-      local kind = kindOf(info)
-      if kind and kind ~= role.kind then
-        problems[#problems + 1] = ("%s: the %s side is %s")
-                                  :format(role.label, S.sideName(side), info.block)
+    local info = S.isSet(side) and probe[side] or nil
+    -- An unset optional role just uses the processing chest, which is
+    -- not a fault and must not read as one. Sharing chestSide's side
+    -- is that same fallback spelled out, so it is allowed too.
+    if S.isSet(side) or not role.optional then
+      if not info or not info.size then
+        problems[#problems + 1] = ("%s: nothing on the %s side")
+                                  :format(role.label, S.sideName(side))
+      elseif seen[side] and not (role.optional and side == assign.chestSide) then
+        problems[#problems + 1] = ("%s: shares the %s side with %s")
+                                  :format(role.label, S.sideName(side), seen[side])
+      else
+        seen[side] = seen[side] or role.label
+        local kind = kindOf(info)
+        if kind and kind ~= role.kind then
+          problems[#problems + 1] = ("%s: the %s side is %s")
+                                    :format(role.label, S.sideName(side), info.block)
+        end
       end
     end
   end
-  -- The sorting chest only ever receives drones. Princesses sitting
-  -- in it while the processing chest has none is the two chests
-  -- being the wrong way round -- the one swap block names cannot
-  -- see. Both halves of that are required: a princess turning up in
-  -- the sorting chest on its own is the user's business, not a fault.
-  local proc, sort = probe[assign.chestSide], probe[assign.sortChestSide]
-  if proc and sort and proc.size and sort.size
-     and sort.princesses > 0 and proc.princesses == 0 then
-    problems[#problems + 1] = "Chests look swapped: the princesses are in the sorting chest"
+  -- Two swaps no block name can see, because both sides hold the same
+  -- block. `want` is the side the princesses belong in and `other`
+  -- the one that only ever sees drones; both halves of the evidence
+  -- are required, because a stray princess in the sorting chest on
+  -- its own is the user's business, not a fault.
+  local function swapped(want, other, why)
+    local x, y = probe[assign[want]], probe[assign[other]]
+    if x and y and x.size and y.size and assign[want] ~= assign[other]
+       and y.princesses > 0 and x.princesses == 0 then
+      problems[#problems + 1] = why
+    end
   end
+  swapped("chestSide", "sortChestSide",
+          "Chests look swapped: the princesses are in the sorting chest")
+  swapped("princessSide", "droneSide",
+          "Cabinets look swapped: the princesses are in the drone cabinet")
   return #problems == 0, problems
 end
 
 -- Take an assignment for this run. config is shared by every module
--- (package.loaded), so this is all it takes -- no reboot.
+-- (package.loaded), so this is all it takes -- no reboot. An optional
+-- role explicitly set to false is CLEARED, not left as it was: that
+-- is how the wiring screen retires a sorting chest.
 function S.apply(assign)
   for _, role in ipairs(S.ROLES) do
-    if assign[role.key] then config[role.key] = assign[role.key] end
+    local side = assign[role.key]
+    if S.isSet(side) then
+      config[role.key] = side
+    elseif role.optional and side == false then
+      config[role.key] = nil
+    end
   end
 end
 

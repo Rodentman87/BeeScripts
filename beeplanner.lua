@@ -13,6 +13,30 @@ local planner = {}
 
 local INF = math.huge
 
+-- Grouping the whole cache by result is the expensive part of a plan
+-- and it does not depend on the target, so it is kept between calls
+-- and thrown away as soon as a DIFFERENT cache table arrives. The
+-- breed screen asks for a route per search hit; without this each of
+-- those would walk two thousand mutations again first.
+-- Nothing in this codebase edits a loaded cache in place; if anything
+-- ever does, it must hand over a fresh table.
+local cached = nil
+
+local function indexOf(muts)
+  if cached and cached.muts == muts then return cached.byResult end
+  local byResult = {}
+  for _, m in ipairs(muts) do
+    local list = byResult[m.r]
+    if not list then
+      list = {}
+      byResult[m.r] = list
+    end
+    list[#list + 1] = m
+  end
+  cached = {muts = muts, byResult = byResult}
+  return byResult
+end
+
 -- muts:  list of {a=, b=, r=, chance=, cond=} from beedata.load()
 -- owned: set (species -> true) of species you already have
 -- target: species display name
@@ -27,15 +51,7 @@ function planner.compute(muts, owned, target, extra)
     return {}, "already owned"
   end
 
-  local byResult = {}
-  for _, m in ipairs(muts) do
-    local list = byResult[m.r]
-    if not list then
-      list = {}
-      byResult[m.r] = list
-    end
-    list[#list + 1] = m
-  end
+  local byResult = indexOf(muts)
 
   if not byResult[target] then
     return nil, ("no mutation produces %q -- check spelling/case"):format(target)

@@ -36,6 +36,15 @@ local GLYPHS = {
   -- header icons
   route = {"◆", "R"}, chat = {"♪", "C"}, bot = {"⚙", "B"}, pure = {"◉", "P"},
   temp = {"☀", "T"},  humid = {"≈", "H"}, warn = {"⚠", "!"}, bee = {"ж", "b"},
+  -- home, breed, settings and update screens
+  princess = {"♛", "P"}, drone = {"♂", "D"}, play = {"▶", ">"},
+  plus = {"✚", "+"},     rescan = {"⟳", "~"}, update = {"⇣", "u"},
+  shell = {"⌨", "$"},    apiary = {"⌂", "A"}, bin = {"⊟", "X"},
+  flask = {"⚗", "S"},    cabinet = {"▤", "#"}, power = {"⏻", "B"},
+  avg = {"ø", "~"},      revert = {"↶", "<"},  arrowR = {"►", ">"},
+  moon = {"☾", "("},     kept = {"⊘", "k"},    fail = {"✗", "x"},
+  same = {"=", "="},     sigma = {"Σ", "S"},   retry = {"↻", "r"},
+  smallR = {"▸", ">"},   caret = {"▁", "_"},   wire = {"⌁", "~"},
 }
 
 function theme.g(name)

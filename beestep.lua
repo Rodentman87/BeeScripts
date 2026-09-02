@@ -9,6 +9,7 @@ local chat    = require("beechat")
 local planner = require("beeplanner")
 local climate = require("beeclimate")
 local advice  = require("beeadvice")
+local found   = require("beefound")
 
 local step = {}
 
@@ -173,6 +174,25 @@ function step.evaluate(princesses, drones, muts, target)
 
   return {sub = sub, stepInfo = stepInfo, isFinal = isFinal,
           goalN = goalN, winner = winner, droneCount = droneCount}
+end
+
+-- Foundation upkeep for this cycle: when the current step names a
+-- block it has to sit on, ask the robot to swap it before the queen
+-- goes in. beefound remembers what it placed and what it has already
+-- complained about, so a missing block retries quietly (restocking
+-- the robot self-heals) while an offline robot stops the retries.
+function step.foundation(info)
+  local needed = info.stepInfo and found.parse(info.stepInfo.cond)
+  if config.botEnabled and needed then ui.status("Foundation: " .. needed) end
+  local outcome, why, fresh = found.maintain(needed)
+  if outcome == "placed" then
+    ui.log("Robot placed foundation: " .. needed, "good")
+    chat.say("BeeBreeder: foundation swapped to " .. needed)
+  elseif outcome == "failed" and fresh then
+    ui.log("Foundation FAIL: " .. tostring(why), "bad")
+    chat.alert(("BeeBreeder: robot couldn't place %s -- %s")
+               :format(needed, tostring(why)))
+  end
 end
 
 return step

@@ -13,6 +13,12 @@ local D = {}
 -- the chest/chest tie, and a role keeps the side it already has on
 -- a tie, so a working config never churns.
 --------------------------------------------------------------------
+-- Optional roles are only taken when the evidence is real: below
+-- this they stay unset and fall back to the processing chest, which
+-- is always a safe answer. Without the bar a spare barrel on some
+-- side would be promoted to "the drone cabinet" on nothing at all.
+local MIN_OPTIONAL = 8
+
 local function scoreSide(info, cur)
   local kind = sides.kindOf(info)
   local s = {}
@@ -21,9 +27,22 @@ local function scoreSide(info, cur)
                + ((info.size == 9 or info.size == 12) and 2 or 0)
   s.scannerSide = (kind == "machine" and 8 or 0)
                 + ((not kind and info.size <= 8) and 3 or 0)
+  -- Cabinets: a filing cabinet is huge and holds ONE item ID, so a
+  -- big inventory with princesses and no drones (or the reverse) is
+  -- as clear a signal as any block name. The dump is the chest with
+  -- things in it that are not bees at all.
+  local bees = info.princesses + info.drones
+  local big  = (kind == "chest" and info.size >= 100) and 5 or 0
+  local junk = (info.items > 0 and bees == 0) and 1 or 0
   local chest = (kind == "chest" and 8 or 0) + (info.size >= 27 and 2 or 0)
   s.chestSide     = chest + (info.princesses > 0 and 5 or 0)
+  -- The sorting chest only ever RECEIVES drones, so a chest full of
+  -- combs is not it, and a 540-slot cabinet is a library, not a bin.
   s.sortChestSide = chest + (info.princesses == 0 and 2 or 0)
+                  - junk * 6 - (big > 0 and 6 or 0)
+  s.princessSide = big + ((info.princesses > 0 and info.drones == 0) and 6 or 0)
+  s.droneSide    = big + ((info.drones > 0 and info.princesses == 0) and 6 or 0)
+  s.dumpSide     = (kind == "chest" and 3 or 0) + junk * 6
   for key in pairs(s) do
     s[key] = s[key] + 0.1                      -- an occupied side beats none
     if cur[key] == info.side then s[key] = s[key] + 1 end
@@ -54,12 +73,22 @@ function D.detect(probe)
     return a.key < b.key
   end)
 
+  local optional = {}
+  for _, role in ipairs(sides.ROLES) do optional[role.key] = role.optional end
+
   local assign, conf, roleOf, usedRole = {}, {}, {}, {}
   for _, c in ipairs(cand) do
-    if not roleOf[c.side] and not usedRole[c.key] then
+    if not roleOf[c.side] and not usedRole[c.key]
+       and not (optional[c.key] and c.score < MIN_OPTIONAL) then
       assign[c.key], roleOf[c.side], usedRole[c.key] = c.side, c.key, true
       conf[c.key] = (c.score >= 8 and "sure") or (c.score >= 4 and "likely") or "guess"
     end
+  end
+  -- An optional role nothing argued for is left explicitly unset, not
+  -- absent: sides.apply reads false as "clear it" and the wiring
+  -- screen can step it back on from there.
+  for _, role in ipairs(sides.ROLES) do
+    if role.optional and assign[role.key] == nil then assign[role.key] = false end
   end
 
   -- Winning by less than 2 over a side that is not firmly spoken
@@ -84,7 +113,9 @@ end
 function D.describe(assign)
   local bits = {}
   for _, r in ipairs(sides.ROLES) do
-    bits[#bits + 1] = r.key:gsub("Side$", "") .. "=" .. sides.sideName(assign[r.key])
+    if sides.isSet(assign[r.key]) then
+      bits[#bits + 1] = r.key:gsub("Side$", "") .. "=" .. sides.sideName(assign[r.key])
+    end
   end
   return table.concat(bits, " ")
 end
@@ -102,8 +133,13 @@ function D.autoheal()
 
   local assign, conf = D.detect(probe)
   local sure = assign ~= nil
+  -- Only the required roles have to be pinned down. An optional one
+  -- left unset is an answer, not a shrug: it means "use the
+  -- processing chest", which is what the classic build does anyway.
   for _, role in ipairs(sides.ROLES) do
-    if not assign or not assign[role.key] or conf[role.key] == "guess" then
+    if not role.optional and
+       (not assign or not sides.isSet(assign[role.key])
+        or conf[role.key] == "guess") then
       sure = false
     end
   end
@@ -114,85 +150,32 @@ function D.autoheal()
   return "fixed", D.describe(assign), probe, assign, conf
 end
 
+
 --------------------------------------------------------------------
--- Write an assignment into beeconfig.lua. Only the value on each
--- <role>Side line changes, so comments and other settings survive --
--- this file is the user's, the updater never touches it. The result
--- is compiled before it is written; the old file becomes a .bak.
+-- Write an assignment into beeconfig.lua. beeconf does the careful
+-- part (patch the value, keep the comments, compile before writing,
+-- leave a .bak); this decides WHAT to write. A role that was never
+-- set and still is not stays out of the file altogether; one being
+-- retired is written as `false`, which every reader treats as "no
+-- such side" -- otherwise it would simply come back on next boot.
 --------------------------------------------------------------------
-local CANDIDATES = {"/lib/beeconfig.lua", "/home/lib/beeconfig.lua", "/usr/lib/beeconfig.lua"}
-
-local function configPath()
-  local fs = require("filesystem")
-  local ok, found = pcall(package.searchpath, "beeconfig", package.path)
-  if ok and found and fs.exists(found) then return found end
-  for _, p in ipairs(CANDIDATES) do
-    if fs.exists(p) then return p end
-  end
-  return nil, "cannot find beeconfig.lua on package.path"
-end
-
-local function writeAll(path, body)
-  local f, err = io.open(path, "w")
-  if not f then return false, tostring(err) end
-  f:write(body)
-  f:close()
-  return true
-end
-
 function D.save(assign)
-  local path, err = configPath()
-  if not path then return false, err end
-  local f = io.open(path, "r")
-  if not f then return false, "cannot read " .. path end
-  local lines, want = {}, {}
-  for line in f:lines() do lines[#lines + 1] = line end
-  f:close()
-  local original = table.concat(lines, "\n") .. "\n"
-  -- sides.north when that module is in scope (as in the shipped
-  -- config), a plain number when it is not.
-  local named = original:find("local%s+sides%s*=") ~= nil
+  local now, changes, order = sides.current(), {}, {}
   for _, role in ipairs(sides.ROLES) do
     local side = assign[role.key]
-    if side then
-      want[role.key] = named and ("sides." .. sides.sideName(side)) or tostring(side)
+    if sides.isSet(side) then
+      changes[role.key] = {side = side}
+      order[#order + 1] = role.key
+    elseif role.optional and side == false and sides.isSet(now[role.key]) then
+      changes[role.key] = false
+      order[#order + 1] = role.key
     end
   end
-
-  local lastHit = nil
-  for i, line in ipairs(lines) do
-    for key, name in pairs(want) do
-      local head, tail = line:match("^(%s*" .. key .. "%s*=%s*)[%w_%.]+(.*)$")
-      if head then
-        lines[i] = head .. name .. tail
-        want[key] = nil
-        lastHit = i
-      end
-    end
-  end
-
-  -- A config predating a setting has no line to patch: add one.
-  local added = {}
-  for _, role in ipairs(sides.ROLES) do
-    if want[role.key] then
-      added[#added + 1] = ("  %s = %s,  -- added by beebreeder sides")
-                          :format(role.key, want[role.key])
-    end
-  end
-  if #added > 0 then
-    local at = lastHit or math.max(#lines - 1, 0)
-    for k = #added, 1, -1 do table.insert(lines, at + 1, added[k]) end
-  end
-
-  local body = table.concat(lines, "\n") .. "\n"
-  if not load(body, "beeconfig") then
-    return false, "refused to write: the patched beeconfig would not compile"
-  end
-  writeAll(path .. ".bak", original)
-  local ok, werr = writeAll(path, body)
-  if not ok then return false, werr end
+  local ok, pathOrWhy = require("beeconf").write(changes,
+                                                 "set by beebreeder sides")
+  if not ok then return false, pathOrWhy end
   sides.apply(assign)
-  return true, path
+  return true, pathOrWhy
 end
 
 return D

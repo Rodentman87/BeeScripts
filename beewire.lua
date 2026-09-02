@@ -1,11 +1,10 @@
 -- beewire.lua  ->  install to /lib/beewire.lua
--- Touch screen for the transposer wiring: one row per role, arrows
--- to walk it around the sides, and what is actually on each side
--- shown underneath so the choice is checkable without leaving the
--- chair. DETECT refills it from beedetect; SAVE writes beeconfig.
---
--- Reached by `beebreeder sides`, and automatically at startup when
--- detection cannot work the build out on its own.
+-- Touch screen for the transposer wiring: one row per role, arrows to
+-- walk it around the sides, and what is actually on each side shown
+-- underneath so the choice is checkable without leaving the chair.
+-- DETECT refills it from beedetect; SAVE writes beeconfig. Reached by
+-- `beebreeder sides`, and automatically at startup when detection
+-- cannot work the build out on its own.
 
 local core   = require("beeui")
 local config = require("beeconfig")
@@ -25,10 +24,8 @@ local function cycleOrder(probe)
   for side = 0, 5 do
     if probe[side] and probe[side].size then order[#order + 1] = side end
   end
-  if #order == 0 then
-    for side = 0, 5 do order[#order + 1] = side end
-  end
-  return order
+  if #order > 0 then return order end
+  return {0, 1, 2, 3, 4, 5}
 end
 
 local function step(order, from, delta)
@@ -40,7 +37,27 @@ local function step(order, from, delta)
   return order[at]
 end
 
---------------------------------------------------------------------
+-- Optional roles get one extra stop on the carousel: unset, first in
+-- the ring so it is one step from anywhere.
+local function orderFor(role, order)
+  if not role.optional then return order end
+  local o = {false}
+  for _, side in ipairs(order) do o[#o + 1] = side end
+  return o
+end
+
+-- What "unset" means for each optional role, in its own words
+local UNSET = {sortChestSide = "no hybrid sweep"}
+
+local function label(side)
+  return sides.isSet(side) and sides.sideName(side) or "unset"
+end
+
+local function note(role, side, probe)
+  if sides.isSet(side) then return sides.describeSide(probe[side]) end
+  return UNSET[role.key] or "uses the processing chest"
+end
+
 function wire.run()
   if not core.hasGpu then return nil end
   local probe, err = sides.probe()
@@ -56,7 +73,9 @@ function wire.run()
   local conf, state = {}, nil
   local flash = nil                     -- one-line result of the last action
 
-  local function rowOf(i) return 4 + (i - 1) * 3 end
+  -- Two rows per role, no blank between: seven roles have to fit
+  -- above the verdict lines on an 80x25 screen as well as a 160x50.
+  local function rowOf(i) return 3 + (i - 1) * 2 end
 
   local function draw()
     core.clearButtons()
@@ -66,56 +85,54 @@ function wire.run()
     for i, role in ipairs(sides.ROLES) do
       local row = rowOf(i)
       local side = assign[role.key]
+      local ring = orderFor(role, order)
+      local function arrow(id, x, mark, delta)
+        core.button{id = id .. i, x = x, y = row, label = "[ " .. mark .. " ]",
+                    bg = C.barEmpty, onPress = function()
+                      assign[role.key] = step(ring, side, delta)
+                      conf[role.key] = nil; flash = nil; draw()
+                    end}
+      end
       core.line(row, role.label)
-      core.button{id = "less" .. i, x = 20, y = row, label = "[ < ]",
-                  bg = C.barEmpty, onPress = function()
-                    assign[role.key] = step(order, side, -1)
-                    conf[role.key] = nil; flash = nil; draw()
-                  end}
-      core.text(27, row, ("%-6s"):format(sides.sideName(side)), C.header)
-      core.button{id = "more" .. i, x = 35, y = row, label = "[ > ]",
-                  bg = C.barEmpty, onPress = function()
-                    assign[role.key] = step(order, side, 1)
-                    conf[role.key] = nil; flash = nil; draw()
-                  end}
+      arrow("less", 20, "<", -1)
+      core.text(27, row, ("%-6s"):format(label(side)),
+                sides.isSet(side) and C.header or C.dim2)
+      arrow("more", 35, ">", 1)
       if conf[role.key] then
         core.text(42, row, CONF_TEXT[conf[role.key]],
                   CONF_COLOR[conf[role.key]] or C.dim)
       end
-      core.line(row + 1, "    " .. sides.describeSide(probe[side]), C.dim)
+      core.line(row + 1, "    " .. note(role, side, probe), C.dim)
     end
 
+    -- One verdict line: the last action if there was one, else the
+    -- first problem, else the all-clear. A second problem gets the
+    -- row below; the rest are the same story told again.
     local ok, problems = sides.validate(probe, assign)
     core.hline(H - 5)
-    core.line(H - 4, "")
     core.line(H - 3, "")
-    if flash then
-      core.line(H - 4, flash, C.good)
-    elseif ok then
-      core.line(H - 4, "Looks right: every role has its own inventory.", C.good)
-    else
-      core.line(H - 4, problems[1], C.bad)
-      if problems[2] then core.line(H - 3, problems[2], C.bad) end
-    end
+    core.line(H - 4, flash or problems[1] or
+              "Looks right: every role has its own inventory.",
+              (ok or flash) and C.good or C.bad)
+    if not flash and problems[2] then core.line(H - 3, problems[2], C.bad) end
 
-    core.button{id = "save", x = 2, y = H - 1, label = "[ SAVE ]",
-                bg = ok and C.good or C.barEmpty,
-                fg = ok and C.headerFg or C.dim,
-                onPress = function() if ok then state = "save" end end}
-    core.button{id = "use", x = 12, y = H - 1, label = "[ USE ONCE ]",
-                bg = C.barEmpty,
-                onPress = function() if ok then state = "use" end end}
-    core.button{id = "detect", x = 26, y = H - 1, label = "[ DETECT ]",
-                bg = C.barEmpty, onPress = function()
-                  probe = sides.probe() or probe
-                  order = cycleOrder(probe)
-                  local a, c = detect.detect(probe)
-                  if a then assign, conf = a, c end
-                  flash = "Detected from what the transposer can see."
-                  draw()
-                end}
-    core.button{id = "cancel", x = 38, y = H - 1, label = "[ CANCEL ]",
-                bg = C.barEmpty, onPress = function() state = "cancel" end}
+    local function btn(id, x, text, bg, fg, fn)
+      core.button{id = id, x = x, y = H - 1, label = text,
+                  bg = bg or C.barEmpty, fg = fg, onPress = fn}
+    end
+    btn("save", 2, "[ SAVE ]", ok and C.good or C.barEmpty,
+        ok and C.headerFg or C.dim, function() if ok then state = "save" end end)
+    btn("use", 12, "[ USE ONCE ]", nil, nil,
+        function() if ok then state = "use" end end)
+    btn("detect", 26, "[ DETECT ]", nil, nil, function()
+      probe = sides.probe() or probe
+      order = cycleOrder(probe)
+      local a, c = detect.detect(probe)
+      if a then assign, conf = a, c end
+      flash = "Detected from what the transposer can see."
+      draw()
+    end)
+    btn("cancel", 38, "[ CANCEL ]", nil, nil, function() state = "cancel" end)
     core.line(H - 2, "SAVE writes beeconfig; USE ONCE lasts for this run only.",
               C.dim)
   end
@@ -132,23 +149,16 @@ function wire.run()
   core.finish()   -- stock palette back before the shell gets the screen
 
   if state == "cancel" then return nil end
-  if state == "use" then
-    sides.apply(assign)
-    return assign, "applied for this run"
-  end
+  sides.apply(assign)
+  if state == "use" then return assign, "applied for this run" end
   local saved, whereOrWhy = detect.save(assign)
-  if not saved then
-    sides.apply(assign)
-    return assign, "could not write beeconfig (" .. tostring(whereOrWhy) ..
-                   ") -- applied for this run"
-  end
-  return assign, "saved to " .. tostring(whereOrWhy)
+  if saved then return assign, "saved to " .. tostring(whereOrWhy) end
+  return assign, "could not write beeconfig (" .. tostring(whereOrWhy) ..
+                 ") -- applied for this run"
 end
 
---------------------------------------------------------------------
 -- Headless equivalent: print what is on each side and what detection
 -- makes of it. `beeprobe sides save` writes the result.
---------------------------------------------------------------------
 function wire.report(save)
   local probe, err = sides.probe()
   if not probe then
@@ -159,7 +169,6 @@ function wire.report(save)
   for side = 0, 5 do
     print(("  %-6s %s"):format(sides.sideName(side), sides.describeSide(probe[side])))
   end
-
   local assign, conf = detect.detect(probe)
   if not assign then
     print("Nothing to assign: " .. tostring(conf))
@@ -167,9 +176,10 @@ function wire.report(save)
   end
   print("Detected:")
   for _, role in ipairs(sides.ROLES) do
-    print(("  %-18s %-6s (%s)"):format(role.label,
-          sides.sideName(assign[role.key]),
-          CONF_TEXT[conf[role.key]] or "?"))
+    local side = assign[role.key]
+    print(("  %-18s %-6s (%s)"):format(role.label, label(side),
+          sides.isSet(side) and (CONF_TEXT[conf[role.key]] or "?")
+            or note(role, side, probe)))
   end
   local ok, problems = sides.validate(probe, assign)
   for _, p in ipairs(problems) do print("  ! " .. p) end
@@ -178,8 +188,7 @@ function wire.report(save)
     print(ok and "Run `beeprobe sides save` to write this to beeconfig."
               or "Fix the build, or set the sides on the `beebreeder sides` screen.")
     return
-  end
-  if not ok then
+  elseif not ok then
     print("Refusing to save an assignment that does not check out.")
     return
   end

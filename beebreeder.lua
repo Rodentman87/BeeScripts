@@ -51,13 +51,31 @@ end
 
 if target == "dump" then
   local yard = require("beeyard")
-  yard.scanChest(true)
+  yard.scan(true)
   return
 end
 
+-- Load the mutation cache unless direct mode was requested
+local muts = nil
+if args[2] ~= "direct" then
+  muts = (data.load())
+end
+
+-- No species named: pick one on screen. The wide breed screen shows
+-- one-step crosses from the cabinets and the plan side by side;
+-- beesetup is still the 80x25 (and no-cache) version.
 if not target then
-  local setup = require("beesetup")
-  local job = setup.run()
+  local job
+  local wide, screen = pcall(require, "beebreedui")
+  if wide and muts and require("beeui").isWide() then
+    local yard  = require("beeyard")
+    local stock = require("beestock")
+    local ok, p, d = pcall(yard.scan, false)
+    local tally, order = stock.tally(ok and p or {}, ok and d or {})
+    job = screen.run(tally, order, muts)
+  else
+    job = require("beesetup").run()
+  end
   if not job then
     print("Usage: beebreeder [<targetSpecies> [direct]] | dump | sides")
     return
@@ -66,12 +84,6 @@ if not target then
   config.requirePure    = job.requirePure
   config.droneGoal      = job.droneGoal
   config.chatEveryQueen = job.chatEveryQueen
-end
-
--- Load the mutation cache unless direct mode was requested
-local muts = nil
-if args[2] ~= "direct" then
-  muts = (data.load())
 end
 
 run.start(target, muts)

@@ -19,7 +19,7 @@ local function ownedFromChest()
   if not ok then return nil end
   local owned = {}
   local ok2 = pcall(function()
-    local princesses, drones = yard.scanChest(false)
+    local princesses, drones = yard.scan(false)
     for _, list in ipairs({princesses, drones}) do
       for _, bee in ipairs(list) do
         if bee.active then owned[bee.active] = true end

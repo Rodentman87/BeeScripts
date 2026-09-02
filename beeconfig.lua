@@ -13,6 +13,18 @@ return {
   apiarySide  = sides.south,  -- side of transposer touching the apiary
   scannerSide = sides.east,   -- side of transposer touching the GT scanner
   sortChestSide = sides.up,   -- chest for cleaned-out hybrid drones
+                              -- (delete this line for no hybrid sweep)
+
+  -- Split storage, all optional. With Extra Utilities filing cabinets
+  -- -- one item ID each -- princesses and drones live apart and the
+  -- combs go somewhere else again. Anything left unset falls back to
+  -- chestSide, so the single-chest build above needs none of these.
+  -- Uncomment and point them at the real sides, or let
+  -- `beebreeder sides` work them out and write them here.
+  -- princessSide = sides.north,  -- cabinet holding princesses
+  -- droneSide    = sides.south,  -- cabinet holding drones
+  -- dumpSide     = sides.up,     -- combs and everything else
+
   scanTimeout = 90,           -- seconds before giving up on a scan (power?)
   botEnabled  = false,        -- foundation-swapping robot (see beebot.lua)
   botPort     = 4477,         -- network port shared with the robot
@@ -23,6 +35,21 @@ return {
   requirePure = false,        -- true = wait for princess with BOTH genes = target
   droneGoal   = 16,           -- also breed this many target-species drones
   intermediateDrones = 4,     -- soft drone goal shown for plan steps
+
+  -- Stock floors. Every species in the library is kept at least this
+  -- deep, whether or not it is in the current plan: a cross that
+  -- would take a species under its floor is replaced by one that
+  -- restocks it first. Everything above the floor is surplus, and
+  -- surplus is what crosses are allowed to spend.
+  princessFloor = 1,          -- princesses kept per species
+  droneFloor    = 4,          -- drones kept per species
+
+  -- The home screen (`beehome`, which is what the computer boots
+  -- into). autoTend lets it restock a low species by itself whenever
+  -- the apiary is idle; with it off, restocking is always a touch.
+  autoTend   = false,
+  homeRescan = 300,           -- seconds between automatic rescans
+
   stagnantWarn = 10,          -- warn if drone count flat for this many cycles
   chatEveryQueen = true,      -- chat message per new queen (false = milestones only)
 

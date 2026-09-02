@@ -10,128 +10,115 @@
 --   beeupdate         fetch beefiles.txt, then install everything
 --   beeupdate list    show what would happen, change nothing
 --
+-- Every file is fetched to a staging path and compared with the
+-- installed copy before anything is written (beefetch does that), so
+-- the report says what actually changed rather than what was
+-- overwritten -- and a failed fetch leaves the old file alone.
+--
 -- Setup: set BASE to your repo's raw-content URL, trailing slash
 -- included, and make sure beefiles.txt sits next to the scripts.
-
-local shell      = require("shell")
-local filesystem = require("filesystem")
 
 local BASE = "https://raw.githubusercontent.com/Rodentman87/BeeScripts/refs/heads/main/"
 
 local MANIFEST  = "beefiles.txt"
 local LAST_LIST = "/home/beefiles.txt"  -- last good copy, kept as a fallback
-
--- Staging file for a fresh download. /tmp is a tmpfs on OpenOS, but
--- don't bet the whole update on it existing: without a writable
--- staging path there is no manifest, and nothing installs at all.
-local TMP_LIST = filesystem.exists("/tmp") and "/tmp/beefiles.txt"
-                 or "/home/beefiles.new"
+local BOOT_LINE = "beehome"
 
 local args = {...}
 local dryRun = (args[1] == "list")
 
-local function fetch(src, dst, force)
-  local flag = force and "-f " or ""
-  return shell.execute("wget " .. flag .. BASE .. src .. " " .. dst)
+local fetch = require("beefetch")
+
+-- The screen is optional in both directions: it may not be installed
+-- yet on a first run, and there may be no GPU at all. Either way the
+-- printed report says the same things.
+local hasUi, ui = pcall(require, "beeupdui")
+if hasUi then
+  local ok, core = pcall(require, "beeui")
+  hasUi = ok and core.hasGpu and core.isWide()
 end
 
--- wget's exit status is not proof that anything was written, so every
--- fetch is judged on the file itself. Without this a silent failure
--- looks exactly like a successful no-op, which is impossible to debug
--- from the outside.
-local function sizeOf(path)
-  if not filesystem.exists(path) then return nil end
-  local ok, n = pcall(filesystem.size, path)
-  return ok and n or nil
-end
+local function badLine(line) print("  skipping unreadable line: " .. line) end
 
--- One entry per line:  <source>  <install path>  [keep]
--- Anything blank or starting with # is a comment. A malformed line
--- is reported and skipped rather than quietly dropped -- a typo in
--- the manifest should not silently stop a module from updating.
-local function parse(path)
-  local f = io.open(path, "r")
-  if not f then return nil end
-  local list = {}
-  for line in f:lines() do
-    line = line:gsub("^%s+", ""):gsub("%s+$", "")
-    if line ~= "" and line:sub(1, 1) ~= "#" then
-      local src, dst, flag = line:match("^(%S+)%s+(%S+)%s*(%S*)")
-      if src and dst and dst:sub(1, 1) == "/" then
-        list[#list + 1] = {src = src, dst = dst, keep = (flag == "keep")}
-      else
-        print("  skipping unreadable line: " .. line)
-      end
-    end
-  end
-  f:close()
-  return list
-end
-
--- The manifest itself comes from the repo. A cached copy of the last
--- good one is kept so a flaky connection leaves you able to update
--- rather than stranded with no list at all.
-local function manifest()
-  print("fetching " .. MANIFEST)
-  -- Clear it first: a stale copy from an earlier run in this session
-  -- parses perfectly well and would masquerade as a fresh download.
-  if filesystem.exists(TMP_LIST) then pcall(filesystem.remove, TMP_LIST) end
-  if fetch(MANIFEST, TMP_LIST, true) then
-    local list = parse(TMP_LIST)
-    if list and #list > 0 then
-      pcall(filesystem.copy, TMP_LIST, LAST_LIST)
-      return list, "from the repo"
-    end
-    print("  " .. MANIFEST .. " downloaded but has no usable entries")
-  end
-  local cached = parse(LAST_LIST)
-  if cached and #cached > 0 then return cached, "from the last good copy" end
-  return nil
-end
-
-local list, source = manifest()
+local list, source = fetch.manifest(BASE, MANIFEST, LAST_LIST, badLine)
 if not list then
   print("Could not read " .. MANIFEST .. " from " .. BASE)
   print("Check the Internet Card, the URL above, and that the file")
   print("exists in the repo. Nothing was changed.")
   return
 end
-print(("%d files listed (%s)"):format(#list, source))
-
-local updated, kept, failed = 0, 0, 0
-for _, e in ipairs(list) do
-  if e.keep and filesystem.exists(e.dst) then
-    print("keeping " .. e.dst)
-    kept = kept + 1
-  elseif dryRun then
-    print(("would fetch %-16s -> %s"):format(e.src, e.dst))
-  else
-    local dir = filesystem.path(e.dst)
-    if dir and not filesystem.exists(dir) then
-      filesystem.makeDirectory(dir)
-    end
-    print("fetching " .. e.src)
-    local before = sizeOf(e.dst)
-    local ok = fetch(e.src, e.dst, true)
-    local after = sizeOf(e.dst)
-    if not ok or not after or after == 0 then
-      print("  FAILED -- nothing written to " .. e.dst)
-      print("  try by hand: wget -f " .. BASE .. e.src .. " " .. e.dst)
-      failed = failed + 1
-    else
-      updated = updated + 1
-      print(("  %d bytes%s"):format(after,
-            before == after and " (same size as before)" or ""))
-    end
-  end
-end
 
 if dryRun then
+  print(("%d files listed (%s)"):format(#list, source))
+  for _, e in ipairs(list) do
+    print(("  %-16s -> %s%s"):format(e.src, e.dst, e.keep and "  (keep)" or ""))
+  end
   print("List only -- nothing was changed.")
   return
 end
-print(("Done: %d updated, %d kept, %d failed."):format(updated, kept, failed))
-if failed > 0 then
-  print("Re-run beeupdate to retry the failures.")
+
+--------------------------------------------------------------------
+-- Reporting: the screen when there is one, plain lines when not.
+--------------------------------------------------------------------
+local WORD = {changed = "changed", unchanged = "same", new = "NEW",
+              kept = "kept", failed = "FAILED", skipped = "skipped"}
+
+local function printReport(event, a, b, c, d)
+  if event == "start" then
+    print(("%d files listed (%s)"):format(a, source))
+  elseif event == "file" and c ~= "skipped" then
+    print(("  %-18s %-8s %s"):format(b, WORD[c] or c, d or ""))
+  elseif event == "done" then
+    print(("Done: %d changed, %d new, %d unchanged, %d kept, %d failed.")
+          :format(a.changed, a.new, a.unchanged, a.kept, a.failed))
+    if a.failed > 0 then print("Re-run beeupdate to retry the failures.") end
+    print(a.libChanged and "A /lib file changed -- reboot to load it."
+          or "Nothing in /lib changed -- no reboot needed.")
+  end
 end
-print("Reboot (or clear package.loaded) to pick up new libs.")
+
+local report = printReport
+if hasUi then
+  ui.begin(BASE, #list, source)
+  report = ui.report
+end
+
+local sum = fetch.all(BASE, list, report)
+
+-- Boot into the home screen. Done after the install so the line only
+-- appears once beehome is actually on disk, and only once ever.
+local added, why = fetch.shrc(BOOT_LINE)
+local bootNote = added and ("added `" .. BOOT_LINE .. "` to /home/.shrc")
+                 or ("/home/.shrc: " .. tostring(why))
+
+--------------------------------------------------------------------
+if not hasUi then
+  print(bootNote)
+  return
+end
+
+while true do
+  local choice = ui.wait(sum)
+  if choice == "retry" and sum.failed > 0 then
+    local only = {}
+    for _, e in ipairs(sum.failedList) do only[e.src] = true end
+    ui.begin(BASE, #list, source)
+    local again = fetch.all(BASE, list, ui.report, only)
+    -- A retry only knows about the files it retried, but a /lib
+    -- module that changed on the first pass still means reboot.
+    again.libChanged = again.libChanged or sum.libChanged
+    sum = again
+  elseif choice == "reboot" then
+    ui.finish()
+    print(bootNote)
+    require("computer").shutdown(true)
+    return
+  else
+    ui.finish()
+    print(bootNote)
+    if sum.libChanged then
+      print("A /lib file changed -- reboot before running anything.")
+    end
+    return
+  end
+end

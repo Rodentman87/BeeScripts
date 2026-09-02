@@ -7,6 +7,7 @@ local genes  = require("beegenes")
 local yard   = require("beeyard")
 local chat   = require("beechat")
 local step   = require("beestep")
+local gate   = require("beegate")
 local found  = require("beefound")
 local climate = require("beeclimate")
 
@@ -30,11 +31,15 @@ end
 
 local function warnLog(msg) ui.log("WARN: " .. msg, "warn") end
 
+-- One pass per bee the scan found, but each bee is looked up afresh
+-- by yard.scanBee: cabinets re-sort on every transfer, so the slot
+-- numbers in this list are stale after the first one moves. Only the
+-- SIDE each bee was on survives the trip.
 local function analyzeAll(unanalyzed)
   ui.status(("Scanning %d bees"):format(#unanalyzed))
   local okCount = 0
-  for _, slot in ipairs(unanalyzed) do
-    local ok, why = yard.scanBee(slot, function() ui.buzz() end)
+  for _, u in ipairs(unanalyzed) do
+    local ok, why = yard.scanBee(u.side, function() ui.buzz() end)
     if ok then okCount = okCount + 1 else warnLog(why) end
   end
   if okCount == 0 then
@@ -46,6 +51,9 @@ local function analyzeAll(unanalyzed)
   return true
 end
 
+-- The sweep is a no-op without a sorting chest, which is the normal
+-- state once the library lives in cabinets: they keep hybrids
+-- happily, and hybrids are useful carriers.
 local function finish(target, info)
   ui.log(("Princess slot %d + %d drones"):format(info.winner.slot, info.droneCount), "good")
   ui.status("Cleaning chest")
@@ -56,22 +64,17 @@ local function finish(target, info)
   if stuck > 0 then
     chat.alert("BeeBreeder: sorting chest full -- some hybrids left behind")
   end
+  local word = gate.restocking() and "RESTOCKED" or "SUCCESS"
   ui.status("DONE")
-  ui.banner((" SUCCESS after %d cycles: %s x%d "):format(cycle, target, info.droneCount))
-  chat.say(("BeeBreeder DONE: %s princess + %d drones after %d cycles (%d hybrids swept)")
-           :format(target, info.droneCount, cycle, movedBees))
+  ui.banner((" %s after %d cycles: %s x%d "):format(word, cycle, target,
+            info.droneCount))
+  chat.say(("BeeBreeder %s: %s princess + %d drones after %d cycles (%d hybrids swept)")
+           :format(word, target, info.droneCount, cycle, movedBees))
 end
 
 -- Run one breeding cycle. Returns false if the user halted mid-wait.
-local function breedCycle(princesses, drones, info)
-  local p, d, mode
-  if info.stepInfo then
-    p, d, mode = genes.pickCross(princesses, drones,
-                                 info.stepInfo.a, info.stepInfo.b, info.sub)
-  else
-    p, d = genes.pickPair(princesses, drones, info.sub)
-  end
-
+local function breedCycle(princesses, drones, info, target)
+  local p, d, mode = gate.pick(princesses, drones, info, target)
   cycle = cycle + 1
   ui.cycle(cycle)
   ui.pair(p, d, info.stepInfo, info.sub)
@@ -105,13 +108,19 @@ local function breedCycle(princesses, drones, info)
   return true
 end
 
-function run.start(target, muts)
+-- opts (all optional): {restock = true} stops at the stock floors and
+-- says RESTOCKED; {goal = n} sets the drone goal for this run. Both
+-- leave config.droneGoal changed on purpose -- the screens read it
+-- live -- so a caller that wants its old value back saves it first.
+function run.start(target, muts, opts)
+  gate.reset(opts)
   ui.init(target, muts)
   yard.sleep = ui.sleep  -- make all waits keyboard/touch-aware
   step.reset()
   found.reset()
   cycle = 0
-  ui.log("Breeding toward: " .. target)
+  ui.log(gate.restocking() and ("Restocking: " .. target)
+         or ("Breeding toward: " .. target))
   ui.log("Press Q (or the HALT button) to stop gracefully.")
   local hive = climate.autodetect()
   ui.log(("Hive climate: %s (%s)"):format(hive.text,
@@ -141,7 +150,7 @@ function run.start(target, muts)
     if ui.haltRequested() then userHalt() return end
 
     climate.autodetect()  -- an alveary block added mid-run should count
-    local princesses, drones, unanalyzed = yard.scanChest(false)
+    local princesses, drones, unanalyzed = yard.scan(false)
 
     if #unanalyzed > 0 then
       if not analyzeAll(unanalyzed) then break end
@@ -156,7 +165,7 @@ function run.start(target, muts)
         break
       end
 
-      if info.winner and info.isFinal and info.droneCount >= config.droneGoal then
+      if gate.reached(info, princesses) then
         finish(target, info)
         return
       end
@@ -168,21 +177,8 @@ function run.start(target, muts)
         break
       end
 
-      -- Foundation automation: when the current step needs a
-      -- different foundation block, have the robot swap it first.
-      local needed = info.stepInfo and found.parse(info.stepInfo.cond)
-      if config.botEnabled and needed then ui.status("Foundation: " .. needed) end
-      local outcome, why, fresh = found.maintain(needed)
-      if outcome == "placed" then
-        ui.log("Robot placed foundation: " .. needed, "good")
-        chat.say("BeeBreeder: foundation swapped to " .. needed)
-      elseif outcome == "failed" and fresh then
-        ui.log("Foundation FAIL: " .. tostring(why), "bad")
-        chat.alert(("BeeBreeder: robot couldn't place %s -- %s")
-                   :format(needed, tostring(why)))
-      end
-
-      if not breedCycle(princesses, drones, info) then
+      step.foundation(info)
+      if not breedCycle(princesses, drones, info, target) then
         userHalt()
         return
       end

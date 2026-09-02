@@ -15,17 +15,23 @@
 beebreeder.lua    /home/beebreeder.lua
 beeprobe.lua      /home/beeprobe.lua
 beeplan.lua       /home/beeplan.lua
+beehome.lua       /home/beehome.lua
 
 # Engine
 beerun.lua        /lib/beerun.lua
 beestep.lua       /lib/beestep.lua
+beegate.lua       /lib/beegate.lua
+beestock.lua      /lib/beestock.lua
+beebank.lua       /lib/beebank.lua
 beeyard.lua       /lib/beeyard.lua
+beestore.lua      /lib/beestore.lua
 beegenes.lua      /lib/beegenes.lua
 beeplanner.lua    /lib/beeplanner.lua
 
 # Transposer wiring -- which side is the chest, apiary, scanner
 beesides.lua      /lib/beesides.lua
 beedetect.lua     /lib/beedetect.lua
+beeconf.lua       /lib/beeconf.lua
 
 # Registry caches and climate
 beedata.lua       /lib/beedata.lua
@@ -49,8 +55,23 @@ beetree.lua       /lib/beetree.lua
 beepedigree.lua   /lib/beepedigree.lua
 beepunnett.lua    /lib/beepunnett.lua
 beesetup.lua      /lib/beesetup.lua
+beeframe.lua      /lib/beeframe.lua
+beefields.lua     /lib/beefields.lua
+beeedit.lua       /lib/beeedit.lua
+beecfgui.lua      /lib/beecfgui.lua
+beehomeui.lua     /lib/beehomeui.lua
+beehomeact.lua    /lib/beehomeact.lua
+beerecent.lua     /lib/beerecent.lua
+beeswarm.lua      /lib/beeswarm.lua
+beepop.lua        /lib/beepop.lua
+beestatus.lua     /lib/beestatus.lua
 beepreview.lua    /lib/beepreview.lua
+beebreedui.lua    /lib/beebreedui.lua
+beecands.lua      /lib/beecands.lua
+beebrief.lua      /lib/beebrief.lua
+beepick.lua       /lib/beepick.lua
 beewire.lua       /lib/beewire.lua
+beeupdui.lua      /lib/beeupdui.lua
 beesegs.lua       /lib/beesegs.lua
 beecolors.lua     /lib/beecolors.lua
 
@@ -58,6 +79,7 @@ beecolors.lua     /lib/beecolors.lua
 beechat.lua       /lib/beechat.lua
 beefound.lua      /lib/beefound.lua
 beedump.lua       /lib/beedump.lua
+beefetch.lua      /lib/beefetch.lua
 
 # Yours -- fetched once, then left alone forever
 beeconfig.lua     /lib/beeconfig.lua    keep
